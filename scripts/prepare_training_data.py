@@ -12,7 +12,7 @@ import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 
 
-NPARTITIONS = cpu_count() - 1
+NPARTITIONS = 128 #cpu_count()
 
 
 def read_data(data_path: str, npartitions: int) -> dd.DataFrame:
@@ -96,7 +96,7 @@ def save_data(rows: pd.DataFrame,
         os.mkdir(out_split_dir)
     output_path = os.path.join(out_split_dir, f"{split}_{user_id}.pth")
 
-    rows = rows.sort_values("timestamp").reset_index(drop=True)
+    rows = rows.sort_values("timestamp").reset_index(drop=True).head(512)
 
     y_vec = get_row(rows, "answered_correctly").values
     y_vec = torch.tensor(y_vec, dtype=torch.long)
@@ -184,26 +184,26 @@ def main(data_path: str, questions_path: str, lectures_path: str, output_dir: st
             with open(idx_out_path, "wb") as fp:
                 pickle.dump(eval(idx), fp)
 
-    with ProgressBar():
-        # data_df = read_data(data_path, npartitions=NPARTITIONS).merge(content_df, how="left", on="content_id")
-        data_df = read_data(data_path, npartitions=NPARTITIONS) \
-            .merge(content_df, how="left", on="content_id")
-        print("data_df", data_df.shape)
-        print(data_df.columns)
+    data_df = read_data(data_path, npartitions=NPARTITIONS) \
+        .merge(content_df, how="left", on="content_id")
+    print("data_df", data_df.shape)
+    print(data_df.columns)
 
-        _save_data = partial(save_data,
-                             output_dir=output_dir,
-                             split=split,
-                             part_idx=part_idx,
-                             type_idx=type_idx,
-                             bundle_id_idx=bundle_id_idx,
-                             content_id_idx=content_id_idx)
-        data_df["_user_id"] = data_df["user_id"]
-        data_df \
-            .groupby("user_id") \
-            .apply(_save_data,
-                   meta=pd.Series([None])) \
-            .compute()
+    _save_data = partial(save_data,
+                         output_dir=output_dir,
+                         split=split,
+                         part_idx=part_idx,
+                         type_idx=type_idx,
+                         bundle_id_idx=bundle_id_idx,
+                         content_id_idx=content_id_idx)
+    data_df["_user_id"] = data_df.index
+    data_df["key"] = data_df.index
+    data_df \
+        .groupby("key") \
+        .apply(_save_data,
+               meta=pd.Series([None])) \
+        .compute()
+    print("Done")
 
 
 if __name__ == "__main__":
