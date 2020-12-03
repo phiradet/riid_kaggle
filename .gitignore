@@ -130,3 +130,5 @@ dmypy.json
 
 .idea/*
 dataset/*
+*/logs/*
+*/tensorboard_logs/*
