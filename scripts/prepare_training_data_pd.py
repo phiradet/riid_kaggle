@@ -96,7 +96,7 @@ def save_data(rows: pd.DataFrame,
         os.mkdir(out_split_dir)
     output_path = os.path.join(out_split_dir, f"{split}_{user_id}.pth")
 
-    rows = rows.sort_values("timestamp").reset_index(drop=True)
+    rows = rows.sort_values("timestamp").head(512).reset_index(drop=True)
 
     y_vec = get_row(rows, "answered_correctly").values
     y_vec = torch.tensor(y_vec, dtype=torch.long)
