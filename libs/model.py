@@ -37,6 +37,9 @@ class Predictor(pl.LightningModule):
                             num_layers=lstm_num_layers,
                             dropout=lstm_dropout)
 
+        if self.hparams.get("layer_norm", False):
+            self.layer_norm = nn.LayerNorm(lstm_hidden_dim)
+
         self.hidden2logit = nn.Linear(in_features=lstm_hidden_dim,
                                       out_features=1)
 
@@ -83,6 +86,11 @@ class Predictor(pl.LightningModule):
 
         # lstm_out: (batch, seq, num_directions * hidden_size)
         lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
+
+        if self.hparams.get("layer_norm", False):
+            lstm_out = self.layer_norm(lstm_out)
+
+        lstm_out = F.relu(lstm_out)
         lstm_out = self.spatial_dropout(lstm_out, p=self.hparams["output_dropout"])
 
         y_pred = torch.squeeze(self.hidden2logit(lstm_out), dim=-1)  # (batch, seq)
