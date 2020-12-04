@@ -147,11 +147,11 @@ def save_data(rows: pd.DataFrame,
     assert torch.isnan(feature_mat).sum() == 0
 
     instance = {
-        "y": y_vec,
+        "y": y_vec.to_sparse(),
         "user_id": torch.tensor(user_id, dtype=torch.long),
         "content_id": content_id_vec,
         "bundle_id": bundle_id_vec,
-        "feature": feature_mat
+        "feature": feature_mat.to_sparse()
     }
     torch.save(instance, output_path)
 
