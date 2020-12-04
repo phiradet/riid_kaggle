@@ -2,13 +2,21 @@ import os
 import pickle
 from multiprocessing import cpu_count
 
+import torch
 import fire
+import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from libs.dataset import RiidDataset, get_data_loader
 from libs.model import Predictor
+
+
+torch.manual_seed(0)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+np.random.seed(0)
 
 
 def main(data_root_dir: str, batch_size: int, save_top_k: int = 5, max_epochs: int = 10):
@@ -22,7 +30,7 @@ def main(data_root_dir: str, batch_size: int, save_top_k: int = 5, max_epochs: i
     val_dataset = RiidDataset(data_root_dir=data_root_dir, split="val")
     val_loader = get_data_loader(dataset=val_dataset,
                                  batch_size=batch_size,
-                                 shuffle=True,
+                                 shuffle=False,
                                  num_workers=cpu_count())
 
     bundle_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/bundle_id_idx.pickle"), "rb"))
@@ -61,7 +69,7 @@ def main(data_root_dir: str, batch_size: int, save_top_k: int = 5, max_epochs: i
 
     trainer = pl.Trainer(max_epochs=max_epochs,
                          callbacks=[checkpoint_callback],
-                         logger=logger)
+                         logger=logger, gpus=1)
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
 
 
