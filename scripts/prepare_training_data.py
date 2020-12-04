@@ -12,7 +12,7 @@ import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 
 
-NPARTITIONS = 128 #cpu_count()
+NPARTITIONS = cpu_count()
 
 
 def read_data(data_path: str, npartitions: int) -> dd.DataFrame:
@@ -196,14 +196,15 @@ def main(data_path: str, questions_path: str, lectures_path: str, output_dir: st
                          type_idx=type_idx,
                          bundle_id_idx=bundle_id_idx,
                          content_id_idx=content_id_idx)
-    data_df["_user_id"] = data_df.index
-    data_df["key"] = data_df.index
+    data_df["_user_id"] = data_df["user_id"]
+    data_df["key"] = data_df["user_id"]
+    print("Expected file count", len(data_df["key"].drop_duplicates()))
     data_df \
         .groupby("key") \
         .apply(_save_data,
                meta=pd.Series([None])) \
         .compute()
-    print("Done")
+    print("==== Done ====")
 
 
 if __name__ == "__main__":
