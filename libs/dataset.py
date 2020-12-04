@@ -29,7 +29,11 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     out = {}
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
-            _tensors = [i[k][:seq_max_len] for i in instances]
+            if k in ["y", "feature"]:
+                _tensors = [i[k][:seq_max_len] for i in instances]
+            else:
+                _tensors = [i[k].to_dense()[:seq_max_len] for i in instances]
+
             padded_tensor = pad_sequence(_tensors, batch_first=batch_first)
         else:
             _tensors = [i[k] for i in instances]
@@ -38,7 +42,8 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
         sorted_padded_tensor = padded_tensor.index_select(0, permutation_index)
         out[k] = sorted_padded_tensor
 
-    out["mask"] = (out["content_id"] != 0).to(dtype=torch.uint8)
+    out["seq_len_mask"] = (out["content_id"] != 0).to(dtype=torch.uint8)
+    out["question_mask"] = (out["y"] >= 0).to(dtype=torch.uint8)
     out["restoration_indices"] = restoration_indices
 
     return out

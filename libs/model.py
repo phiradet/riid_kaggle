@@ -99,7 +99,8 @@ class Predictor(pl.LightningModule):
 
     def _step(self, batch):
         actual = batch["y"]  # (batch, seq)
-        mask = batch["mask"]  # (batch, seq)
+        seq_len_mask = batch["seq_len_mask"]  # (batch, seq)
+        question_mask = batch["question_mask"]  # (batch, seq)
 
         batch_size, seq_len = actual.shape
         actual = actual.view(batch_size * seq_len).float()
@@ -113,21 +114,21 @@ class Predictor(pl.LightningModule):
         # assert torch.isnan(content_id).sum() == 0
         # assert torch.isnan(bundle_id).sum() == 0
         # assert torch.isnan(feature).sum() == 0
-        # assert torch.isnan(mask).sum() == 0
+        # assert torch.isnan(seq_len_mask).sum() == 0
 
         content_id[torch.isnan(content_id)] = 0
         bundle_id[torch.isnan(bundle_id)] = 0
         feature[torch.isnan(feature)] = 0
-        mask[torch.isnan(mask)] = 0
+        seq_len_mask[torch.isnan(seq_len_mask)] = 0
 
         pred, _ = self.forward(content_id=content_id,
                                bundle_id=bundle_id,
                                feature=feature,
                                user_id=user_id,
-                               mask=mask)
+                               mask=seq_len_mask)
         pred = pred.view(batch_size * seq_len)
 
-        flatten_mask = mask.view(batch_size * seq_len)
+        flatten_mask = (seq_len_mask & question_mask).view(batch_size * seq_len)
         loss = self.criterion(input=pred,
                               target=actual,
                               weight=flatten_mask,
