@@ -19,13 +19,7 @@ class Predictor(pl.LightningModule):
                                            embedding_dim=content_id_dim,
                                            padding_idx=0)
 
-        bundle_id_size = self.hparams["bundle_id_size"]
-        bundle_id_dim = self.hparams["bundle_id_dim"]
-        self.bundle_id_emb = nn.Embedding(num_embeddings=bundle_id_size,
-                                          embedding_dim=bundle_id_dim,
-                                          padding_idx=0)
-
-        lstm_in_dim = self.hparams["feature_dim"] + self.hparams["content_id_dim"] + self.hparams["bundle_id_dim"]
+        lstm_in_dim = self.hparams["feature_dim"] + self.hparams["content_id_dim"]
         lstm_hidden_dim = self.hparams["lstm_hidden_dim"]
         lstm_num_layers = self.hparams["lstm_num_layers"]
         lstm_dropout = self.hparams["lstm_dropout"]
@@ -66,12 +60,7 @@ class Predictor(pl.LightningModule):
         content_emb = self.content_id_emb(content_id)
         content_emb = self.spatial_dropout(content_emb, p=self.hparams["emb_dropout"])
 
-        # bundle_emb: (batch, seq, dim)
-        bundle_emb = self.bundle_id_emb(bundle_id)
-        bundle_emb = self.spatial_dropout(bundle_emb, p=self.hparams["emb_dropout"])
-
-        # bundle_emb: (batch, seq, dim)
-        feature = torch.cat([content_emb, bundle_emb, feature], dim=-1)
+        feature = torch.cat([content_emb, feature], dim=-1)
 
         # Apply LSTM
         sorted_sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
@@ -151,7 +140,7 @@ class Predictor(pl.LightningModule):
         loss = self._step(batch)
 
         self.logger.experiment.add_scalar("Loss/Validation", loss, self.current_epoch)
-        self.log('validation_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         outputs = {
             'loss': loss
