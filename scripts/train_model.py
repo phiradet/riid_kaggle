@@ -20,6 +20,11 @@ np.random.seed(0)
 
 
 def main(data_root_dir: str, batch_size: int, gpus: int = 1, save_top_k: int = 5, max_epochs: int = 10):
+    print("data_root_dir", data_root_dir, type(data_root_dir))
+    print("batch_size", batch_size, type(batch_size))
+    print("gpus", gpus, type(gpus))
+    print("save_top_k", save_top_k, type(save_top_k))
+    print("max_epochs", max_epochs, type(max_epochs))
 
     train_dataset = RiidDataset(data_root_dir=data_root_dir, split="train")
     train_loader = get_data_loader(dataset=train_dataset,
