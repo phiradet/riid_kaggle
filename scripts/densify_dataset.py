@@ -12,8 +12,8 @@ def main(src_dir: str, dst_dir: str):
     for f in tqdm(all_files):
         data = torch.load(f)
 
-        data["y"] = data.to_dense()
-        data["feature"] = data.to_dense()
+        for k in ["y", "feature"]:
+            data[k] = data[k].to_dense()
 
         basename = os.path.basename(f)
         torch.save(data, os.path.join(dst_dir, basename))
