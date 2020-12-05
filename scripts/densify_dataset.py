@@ -2,6 +2,7 @@ import os
 import glob
 from multiprocessing import Pool, cpu_count
 from functools import partial
+from datetime import datetime
 
 import fire
 import torch
@@ -25,4 +26,6 @@ def main(src_dir: str, dst_dir: str):
 
 
 if __name__ == "__main__":
+    print(datetime.now())
     fire.Fire(main)
+    print(datetime.now())
