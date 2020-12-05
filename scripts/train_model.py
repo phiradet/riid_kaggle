@@ -13,10 +13,10 @@ from libs.dataset import RiidDataset, get_data_loader
 from libs.model import Predictor
 
 
-torch.manual_seed(0)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-np.random.seed(0)
+# torch.manual_seed(0)
+# torch.backends.cudnn.deterministic = True
+# torch.backends.cudnn.benchmark = False
+# np.random.seed(0)
 
 
 def main(data_root_dir: str, batch_size: int, gpus: int = 1, save_top_k: int = 5, max_epochs: int = 10):
