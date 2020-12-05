@@ -25,12 +25,14 @@ def main(data_root_dir: str, batch_size: int, gpus: int = 1, save_top_k: int = 5
     train_loader = get_data_loader(dataset=train_dataset,
                                    batch_size=batch_size,
                                    shuffle=True,
+                                   pin_memory = True,
                                    num_workers=cpu_count())
 
     val_dataset = RiidDataset(data_root_dir=data_root_dir, split="val")
     val_loader = get_data_loader(dataset=val_dataset,
                                  batch_size=batch_size,
                                  shuffle=False,
+                                 pin_memory=True,
                                  num_workers=cpu_count())
 
     bundle_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/bundle_id_idx.pickle"), "rb"))
