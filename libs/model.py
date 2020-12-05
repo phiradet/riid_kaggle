@@ -1,3 +1,5 @@
+from typing import *
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -41,7 +43,16 @@ class Predictor(pl.LightningModule):
 
     @staticmethod
     def get_lengths_from_seq_mask(mask: torch.Tensor) -> torch.Tensor:
-        return mask.long().sum(-1)
+        return mask.int().sum(-1)
+
+    @staticmethod
+    def sort_batch_by_length(seq_lens: torch.Tensor):
+        sorted_sequence_lengths, permutation_index = seq_lens.sort(0, descending=True)
+
+        index_range = torch.arange(0, len(seq_lens), device=seq_lens.device)
+        _, reverse_mapping = permutation_index.sort(0, descending=False)
+        restoration_indices = index_range.index_select(0, reverse_mapping)
+        return sorted_sequence_lengths, restoration_indices, permutation_index
 
     def spatial_dropout(self, input, p):
         # input: (N, seq, dim)
@@ -54,8 +65,21 @@ class Predictor(pl.LightningModule):
                 content_id: torch.LongTensor,
                 bundle_id: torch.LongTensor,
                 feature: torch.FloatTensor,
-                user_id: torch.FloatTensor,
-                mask: torch.Tensor):
+                mask: torch.Tensor,
+                seq_lens: Optional[torch.Tensor] = None):
+
+        batch, seq_len = content_id.shape
+
+        if seq_lens is None:
+            seq_lens = self.__class__.get_lengths_from_seq_mask(mask)
+
+        out = self.__class__.sort_batch_by_length(seq_lens)
+        sorted_seq_lengths, restoration_index, permutation_index = out
+
+        # ===== Sorted length order ====
+        content_id = content_id.index_select(0, permutation_index)
+        feature = feature.index_select(0, permutation_index)
+
         # content_emb: (batch, seq, dim)
         content_emb = self.content_id_emb(content_id)
         content_emb = self.spatial_dropout(content_emb, p=self.hparams["emb_dropout"])
@@ -63,9 +87,8 @@ class Predictor(pl.LightningModule):
         feature = torch.cat([content_emb, feature], dim=-1)
 
         # Apply LSTM
-        sorted_sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
         packed_sequence_input = pack_padded_sequence(feature,
-                                                     sorted_sequence_lengths.data.tolist(),
+                                                     sorted_seq_lengths,
                                                      batch_first=True)
 
         # encoder_out: (batch, seq_len, num_directions * hidden_size):
@@ -75,6 +98,13 @@ class Predictor(pl.LightningModule):
 
         # lstm_out: (batch, seq, num_directions * hidden_size)
         lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
+        # ===== End of sorted length order ====
+
+        # ===== Reverse order ====
+        lstm_out = lstm_out.index_select(0, restoration_index)
+        h_t = h_t.index_select(1, restoration_index)
+        c_t = c_t.index_select(1, restoration_index)
+        # ========================
 
         if self.hparams.get("layer_norm", False):
             lstm_out = self.layer_norm(lstm_out)
@@ -82,14 +112,22 @@ class Predictor(pl.LightningModule):
         lstm_out = F.relu(lstm_out)
         lstm_out = self.spatial_dropout(lstm_out, p=self.hparams["output_dropout"])
 
-        y_pred = torch.squeeze(self.hidden2logit(lstm_out), dim=-1)  # (batch, seq)
+        # (batch * seq, dim)
+        lstm_out = lstm_out.view(batch * seq_len, -1)
+
+        y_pred = self.hidden2logit(lstm_out)  # (batch * seq, 1)
+        y_pred = torch.squeeze(y_pred, dim=-1)  # (batch * seq)
+        y_pred = y_pred.view(batch, seq_len)
 
         return y_pred, (h_t, c_t)
 
     def _step(self, batch):
         actual = batch["y"]  # (batch, seq)
-        seq_len_mask = batch["seq_len_mask"]  # (batch, seq)
-        question_mask = batch["question_mask"]  # (batch, seq)
+
+        seq_len_vec = batch["seq_len"]
+
+        seq_len_mask = (batch["content_id"] != 0).to(dtype=torch.uint8)  # (batch, seq)
+        question_mask = (batch["y"] >= 0).to(dtype=torch.uint8)  # (batch, seq)
 
         batch_size, seq_len = actual.shape
         actual = actual.view(batch_size * seq_len).float()
@@ -98,7 +136,6 @@ class Predictor(pl.LightningModule):
         content_id = batch["content_id"]
         bundle_id = batch["bundle_id"]
         feature = batch["feature"]
-        user_id = batch["user_id"]
 
         # assert torch.isnan(content_id).sum() == 0
         # assert torch.isnan(bundle_id).sum() == 0
@@ -113,8 +150,8 @@ class Predictor(pl.LightningModule):
         pred, _ = self.forward(content_id=content_id,
                                bundle_id=bundle_id,
                                feature=feature,
-                               user_id=user_id,
-                               mask=seq_len_mask)
+                               mask=seq_len_mask,
+                               seq_lens=seq_len_vec)
         pred = pred.view(batch_size * seq_len)
 
         flatten_mask = (seq_len_mask & question_mask).view(batch_size * seq_len)

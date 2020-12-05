@@ -7,24 +7,12 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
 
-def sort_batch_by_length(seq_lens: torch.Tensor):
-    sorted_sequence_lengths, permutation_index = seq_lens.sort(0, descending=True)
-
-    index_range = torch.arange(0, len(seq_lens), device=seq_lens.device)
-    _, reverse_mapping = permutation_index.sort(0, descending=False)
-    restoration_indices = index_range.index_select(0, reverse_mapping)
-    return sorted_sequence_lengths, restoration_indices, permutation_index
-
-
 def collate_fn(instances: List[Dict[str, torch.tensor]],
                batch_first: bool = True,
                max_len: int = 512) -> Dict[str, torch.tensor]:
 
     seq_lens = [len(i["y"]) for i in instances]
     seq_max_len = min(max_len, max(seq_lens))
-
-    sorted_seq_lengths, restoration_indices, permutation_index = sort_batch_by_length(torch.tensor(seq_lens,
-                                                                                                   dtype=torch.long))
 
     out = {}
     for k in instances[0].keys():
@@ -39,12 +27,11 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
             _tensors = [i[k] for i in instances]
             padded_tensor = torch.stack(_tensors, dim=0)
 
-        sorted_padded_tensor = padded_tensor.index_select(0, permutation_index)
-        out[k] = sorted_padded_tensor
+        out[k] = padded_tensor
 
-    out["seq_len_mask"] = (out["content_id"] != 0).to(dtype=torch.uint8)
-    out["question_mask"] = (out["y"] >= 0).to(dtype=torch.uint8)
-    out["restoration_indices"] = restoration_indices
+    out["seq_len"] = torch.tensor(seq_lens, dtype=torch.int)
+    # out["seq_len_mask"] = (out["content_id"] != 0).to(dtype=torch.uint8)
+    # out["question_mask"] = (out["y"] >= 0).to(dtype=torch.uint8)
 
     return out
 
