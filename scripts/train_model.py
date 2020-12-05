@@ -2,9 +2,7 @@ import os
 import pickle
 from multiprocessing import cpu_count
 
-import torch
 import fire
-import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -13,33 +11,31 @@ from libs.dataset import RiidDataset, get_data_loader
 from libs.model import Predictor
 
 
-torch.manual_seed(0)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-np.random.seed(0)
-
-
 def main(data_root_dir: str,
          batch_size: int,
          gpus: int = 1,
          save_top_k: int = 5,
          max_epochs: int = 10,
-         max_len: int = 512):
+         max_len: int = 512,
+         lstm_num_layers: int = 2,
+         lstm_hidden_dim: int = 512,
+         layer_norm: bool = True,
+         lr: float = 0.05):
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
     print("gpus", gpus, type(gpus))
     print("save_top_k", save_top_k, type(save_top_k))
     print("max_epochs", max_epochs, type(max_epochs))
 
-    train_dataset = RiidDataset(data_root_dir=data_root_dir, split="train")
+    train_dataset = RiidDataset(data_root_dir=data_root_dir, split="train_dense")
     train_loader = get_data_loader(dataset=train_dataset,
                                    batch_size=batch_size,
                                    shuffle=True,
-                                   pin_memory = True,
+                                   pin_memory=True,
                                    num_workers=cpu_count(),
                                    max_len=max_len)
 
-    val_dataset = RiidDataset(data_root_dir=data_root_dir, split="val")
+    val_dataset = RiidDataset(data_root_dir=data_root_dir, split="val_dense")
     val_loader = get_data_loader(dataset=val_dataset,
                                  batch_size=batch_size,
                                  shuffle=False,
@@ -57,13 +53,13 @@ def main(data_root_dir: str,
                   bundle_id_size=len(bundle_id_idx) + 1,
                   bundle_id_dim=128,
                   feature_dim=204,
-                  lstm_hidden_dim=512,
-                  lstm_num_layers=2,
+                  lstm_hidden_dim=lstm_hidden_dim,
+                  lstm_num_layers=lstm_num_layers,
                   lstm_dropout=0.3,
                   emb_dropout=0.3,
                   output_dropout=0.3,
-                  layer_norm=True,
-                  lr=0.05)
+                  layer_norm=layer_norm,
+                  lr=lr)
 
     model = Predictor(**config)
     print(model)
