@@ -19,7 +19,7 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(0)
 
 
-def main(data_root_dir: str, batch_size: int, save_top_k: int = 5, max_epochs: int = 10):
+def main(data_root_dir: str, batch_size: int, gpus: int = 1, save_top_k: int = 5, max_epochs: int = 10):
 
     train_dataset = RiidDataset(data_root_dir=data_root_dir, split="train")
     train_loader = get_data_loader(dataset=train_dataset,
@@ -69,7 +69,8 @@ def main(data_root_dir: str, batch_size: int, save_top_k: int = 5, max_epochs: i
 
     trainer = pl.Trainer(max_epochs=max_epochs,
                          callbacks=[checkpoint_callback],
-                         logger=logger, gpus=1)
+                         logger=logger,
+                         gpus=gpus)
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
 
 
