@@ -24,12 +24,12 @@ class Predictor(pl.LightningModule):
         lstm_num_layers = self.hparams["lstm_num_layers"]
         lstm_dropout = self.hparams["lstm_dropout"]
 
-        self.encoder = nn.GRU(input_size=lstm_in_dim,
-                              hidden_size=lstm_hidden_dim,
-                              bidirectional=False,
-                              batch_first=True,
-                              num_layers=lstm_num_layers,
-                              dropout=lstm_dropout)
+        self.encoder = nn.LSTM(input_size=lstm_in_dim,
+                               hidden_size=lstm_hidden_dim,
+                               bidirectional=False,
+                               batch_first=True,
+                               num_layers=lstm_num_layers,
+                               dropout=lstm_dropout)
 
         if self.hparams.get("layer_norm", False):
             self.layer_norm = nn.LayerNorm(lstm_hidden_dim)
