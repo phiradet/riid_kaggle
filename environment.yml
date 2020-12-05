@@ -10,6 +10,7 @@ dependencies:
   - dask=2.30.0
   - pyarrow=0.15.1
   - pip=20.2.4
+  - cudatoolkit=11.0  
   - pip:
       - fire==0.3.1
       - tensorboard==2.4.0  
