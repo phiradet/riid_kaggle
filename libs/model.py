@@ -24,12 +24,12 @@ class Predictor(pl.LightningModule):
         lstm_num_layers = self.hparams["lstm_num_layers"]
         lstm_dropout = self.hparams["lstm_dropout"]
 
-        self.lstm = nn.LSTM(input_size=lstm_in_dim,
-                            hidden_size=lstm_hidden_dim,
-                            bidirectional=False,
-                            batch_first=True,
-                            num_layers=lstm_num_layers,
-                            dropout=lstm_dropout)
+        self.encoder = nn.GRU(input_size=lstm_in_dim,
+                              hidden_size=lstm_hidden_dim,
+                              bidirectional=False,
+                              batch_first=True,
+                              num_layers=lstm_num_layers,
+                              dropout=lstm_dropout)
 
         if self.hparams.get("layer_norm", False):
             self.layer_norm = nn.LayerNorm(lstm_hidden_dim)
@@ -71,7 +71,7 @@ class Predictor(pl.LightningModule):
         # encoder_out: (batch, seq_len, num_directions * hidden_size):
         # h_t: (num_layers * num_directions, batch, hidden_size)
         #    - this dimension is valid regardless of batch_first=True!!
-        packed_lstm_out, (h_t, c_t) = self.lstm(packed_sequence_input)
+        packed_lstm_out, (h_t, c_t) = self.encoder(packed_sequence_input)
 
         # lstm_out: (batch, seq, num_directions * hidden_size)
         lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
