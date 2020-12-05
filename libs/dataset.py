@@ -1,6 +1,7 @@
 import os
 import glob
 from typing import *
+from functools import partial
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -50,7 +51,9 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
 
 
 def get_data_loader(**kwargs):
-    return DataLoader(collate_fn=collate_fn, **kwargs)
+    _collate_fn = partial(collate_fn, max_len=kwargs["max_len"])
+    del kwargs["max_len"]
+    return DataLoader(collate_fn=_collate_fn, **kwargs)
 
 
 class RiidDataset(Dataset):

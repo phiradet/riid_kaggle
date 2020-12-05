@@ -19,7 +19,12 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(0)
 
 
-def main(data_root_dir: str, batch_size: int, gpus: int = 1, save_top_k: int = 5, max_epochs: int = 10):
+def main(data_root_dir: str,
+         batch_size: int,
+         gpus: int = 1,
+         save_top_k: int = 5,
+         max_epochs: int = 10,
+         max_len: int = 512):
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
     print("gpus", gpus, type(gpus))
@@ -31,14 +36,16 @@ def main(data_root_dir: str, batch_size: int, gpus: int = 1, save_top_k: int = 5
                                    batch_size=batch_size,
                                    shuffle=True,
                                    pin_memory = True,
-                                   num_workers=cpu_count())
+                                   num_workers=cpu_count(),
+                                   max_len=max_len)
 
     val_dataset = RiidDataset(data_root_dir=data_root_dir, split="val")
     val_loader = get_data_loader(dataset=val_dataset,
                                  batch_size=batch_size,
                                  shuffle=False,
                                  pin_memory=True,
-                                 num_workers=cpu_count())
+                                 num_workers=cpu_count(),
+                                 max_len=max_len)
 
     bundle_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/bundle_id_idx.pickle"), "rb"))
     part_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/part_idx.pickle"), "rb"))
