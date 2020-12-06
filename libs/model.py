@@ -63,9 +63,10 @@ class Predictor(pl.LightningModule):
         feature = torch.cat([content_emb, feature], dim=-1)
 
         # Apply LSTM
-        sorted_sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
+        sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
         packed_sequence_input = pack_padded_sequence(feature,
-                                                     sorted_sequence_lengths.data.tolist(),
+                                                     sequence_lengths.data.tolist(),
+                                                     enforce_sorted=False,
                                                      batch_first=True)
 
         # encoder_out: (batch, seq_len, num_directions * hidden_size):

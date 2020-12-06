@@ -24,9 +24,6 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     seq_lens = [len(i["y"]) for i in instances]
     seq_max_len = min(max_len, max(seq_lens))
 
-    sorted_seq_lengths, restoration_indices, permutation_index = sort_batch_by_length(torch.tensor(seq_lens,
-                                                                                                   dtype=torch.long))
-
     out = {}
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
@@ -40,19 +37,20 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
             _tensors = [i[k] for i in instances]
             padded_tensor = torch.stack(_tensors, dim=0)
 
-        sorted_padded_tensor = padded_tensor.index_select(0, permutation_index)
-        out[k] = sorted_padded_tensor
+        out[k] = padded_tensor
 
     out["seq_len_mask"] = (out["content_id"] != 0).to(dtype=torch.uint8)
     out["question_mask"] = (out["y"] >= 0).to(dtype=torch.uint8)
-    out["restoration_indices"] = restoration_indices
 
     return out
 
 
 def get_data_loader(**kwargs):
     _collate_fn = partial(collate_fn, max_len=kwargs["max_len"])
-    del kwargs["max_len"]
+
+    if "max_len" in kwargs:
+        del kwargs["max_len"]
+        
     return DataLoader(collate_fn=_collate_fn, **kwargs)
 
 
