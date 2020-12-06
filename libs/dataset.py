@@ -27,10 +27,10 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     out = {}
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
-            if k in ["y", "feature"]:
-                _tensors = [i[k].to_dense()[:seq_max_len] for i in instances]
-            else:
-                _tensors = [i[k][:seq_max_len] for i in instances]
+            #if k in ["y", "feature"]:
+            #    _tensors = [i[k].to_dense()[:seq_max_len] for i in instances]
+            #else:
+            _tensors = [i[k][:seq_max_len] for i in instances]
 
             padded_tensor = pad_sequence(_tensors, batch_first=batch_first)
         else:
@@ -60,17 +60,21 @@ class RiidDataset(Dataset):
         self.data_root_dir = data_root_dir
         self.split = split
 
-    @property
-    def indexes_dir(self):
-        return os.path.join(self.data_root_dir, "indexes")
+        self.indexes_dir = os.path.join(self.data_root_dir, "indexes")
+        self.instances_dir = os.path.join(self.data_root_dir, self.split)
+        self.file_list = list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
 
-    @property
-    def instances_dir(self):
-        return os.path.join(self.data_root_dir, self.split)
+    # @property
+    # def indexes_dir(self):
+    #     return os.path.join(self.data_root_dir, "indexes")
 
-    @property
-    def file_list(self):
-        return list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
+    # @property
+    # def instances_dir(self):
+    #     return os.path.join(self.data_root_dir, self.split)
+
+    # @property
+    # def file_list(self):
+    #     return list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
 
     def __len__(self):
         return len(self.file_list)
