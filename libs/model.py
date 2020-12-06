@@ -129,6 +129,10 @@ class Predictor(pl.LightningModule):
                               reduction="sum")
         loss = loss / flatten_mask.sum()
 
+        if self.hparams.get("b_flooding") is not None:
+            b = torch.tensor(self.hparams["b_flooding"], dtype=torch.float)
+            loss = torch.abs(loss - b) + b
+
         return loss
 
     def training_step(self, batch, batch_idx):
