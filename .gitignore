@@ -134,4 +134,4 @@ dataset/*
 *tensorboard_logs/*
 *yaml
 *.tfevents.*
-*/checkpoints/*
+*checkpoints*
