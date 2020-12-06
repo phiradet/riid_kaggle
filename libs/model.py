@@ -58,7 +58,9 @@ class Predictor(pl.LightningModule):
                 mask: torch.Tensor):
         # content_emb: (batch, seq, dim)
         content_emb = self.content_id_emb(content_id)
-        content_emb = self.spatial_dropout(content_emb, p=self.hparams["emb_dropout"])
+
+        if self.hparams["emb_dropout"] > 0:
+            content_emb = self.spatial_dropout(content_emb, p=self.hparams["emb_dropout"])
 
         feature = torch.cat([content_emb, feature], dim=-1)
 
@@ -81,7 +83,9 @@ class Predictor(pl.LightningModule):
             lstm_out = self.layer_norm(lstm_out)
 
         lstm_out = F.relu(lstm_out)
-        lstm_out = self.spatial_dropout(lstm_out, p=self.hparams["output_dropout"])
+
+        if self.hparams["output_dropout"] > 0:
+            lstm_out = self.spatial_dropout(lstm_out, p=self.hparams["output_dropout"])
 
         y_pred = torch.squeeze(self.hidden2logit(lstm_out), dim=-1)  # (batch, seq)
 
