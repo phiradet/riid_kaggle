@@ -59,7 +59,8 @@ def main(data_root_dir: str,
                   emb_dropout=0.3,
                   output_dropout=0.3,
                   layer_norm=layer_norm,
-                  lr=lr)
+                  lr=lr,
+                  encoder_type="augmented_lstm")
 
     model = Predictor(**config)
     print(model)
