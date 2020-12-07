@@ -24,12 +24,12 @@ class Predictor(pl.LightningModule):
         lstm_num_layers = self.hparams["lstm_num_layers"]
         lstm_dropout = self.hparams["lstm_dropout"]
 
-        self.lstm = nn.LSTM(input_size=lstm_in_dim,
-                            hidden_size=lstm_hidden_dim,
-                            bidirectional=False,
-                            batch_first=True,
-                            num_layers=lstm_num_layers,
-                            dropout=lstm_dropout)
+        self.encoder = nn.LSTM(input_size=lstm_in_dim,
+                               hidden_size=lstm_hidden_dim,
+                               bidirectional=False,
+                               batch_first=True,
+                               num_layers=lstm_num_layers,
+                               dropout=lstm_dropout)
 
         if self.hparams.get("layer_norm", False):
             self.layer_norm = nn.LayerNorm(lstm_hidden_dim)
@@ -58,20 +58,23 @@ class Predictor(pl.LightningModule):
                 mask: torch.Tensor):
         # content_emb: (batch, seq, dim)
         content_emb = self.content_id_emb(content_id)
-        content_emb = self.spatial_dropout(content_emb, p=self.hparams["emb_dropout"])
+
+        if self.hparams["emb_dropout"] > 0:
+            content_emb = self.spatial_dropout(content_emb, p=self.hparams["emb_dropout"])
 
         feature = torch.cat([content_emb, feature], dim=-1)
 
         # Apply LSTM
-        sorted_sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
+        sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
         packed_sequence_input = pack_padded_sequence(feature,
-                                                     sorted_sequence_lengths.data.tolist(),
+                                                     sequence_lengths.data.tolist(),
+                                                     enforce_sorted=False,
                                                      batch_first=True)
 
         # encoder_out: (batch, seq_len, num_directions * hidden_size):
         # h_t: (num_layers * num_directions, batch, hidden_size)
         #    - this dimension is valid regardless of batch_first=True!!
-        packed_lstm_out, (h_t, c_t) = self.lstm(packed_sequence_input)
+        packed_lstm_out, (h_t, c_t) = self.encoder(packed_sequence_input)
 
         # lstm_out: (batch, seq, num_directions * hidden_size)
         lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
@@ -80,7 +83,9 @@ class Predictor(pl.LightningModule):
             lstm_out = self.layer_norm(lstm_out)
 
         lstm_out = F.relu(lstm_out)
-        lstm_out = self.spatial_dropout(lstm_out, p=self.hparams["output_dropout"])
+
+        if self.hparams["output_dropout"] > 0:
+            lstm_out = self.spatial_dropout(lstm_out, p=self.hparams["output_dropout"])
 
         y_pred = torch.squeeze(self.hidden2logit(lstm_out), dim=-1)  # (batch, seq)
 
@@ -123,6 +128,10 @@ class Predictor(pl.LightningModule):
                               weight=flatten_mask,
                               reduction="sum")
         loss = loss / flatten_mask.sum()
+
+        if self.hparams.get("b_flooding") is not None:
+            b = torch.tensor(self.hparams["b_flooding"], dtype=torch.float)
+            loss = torch.abs(loss - b) + b
 
         return loss
 

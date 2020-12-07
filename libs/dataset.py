@@ -1,6 +1,7 @@
 import os
 import glob
 from typing import *
+from functools import partial
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -23,34 +24,30 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     seq_lens = [len(i["y"]) for i in instances]
     seq_max_len = min(max_len, max(seq_lens))
 
-    sorted_seq_lengths, restoration_indices, permutation_index = sort_batch_by_length(torch.tensor(seq_lens,
-                                                                                                   dtype=torch.long))
-
     out = {}
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
-            if k in ["y", "feature"]:
-                _tensors = [i[k].to_dense()[:seq_max_len] for i in instances]
-            else:
-                _tensors = [i[k][:seq_max_len] for i in instances]
-
+            _tensors = [i[k][:seq_max_len] for i in instances]
             padded_tensor = pad_sequence(_tensors, batch_first=batch_first)
         else:
             _tensors = [i[k] for i in instances]
             padded_tensor = torch.stack(_tensors, dim=0)
 
-        sorted_padded_tensor = padded_tensor.index_select(0, permutation_index)
-        out[k] = sorted_padded_tensor
+        out[k] = padded_tensor
 
     out["seq_len_mask"] = (out["content_id"] != 0).to(dtype=torch.uint8)
     out["question_mask"] = (out["y"] >= 0).to(dtype=torch.uint8)
-    out["restoration_indices"] = restoration_indices
 
     return out
 
 
 def get_data_loader(**kwargs):
-    return DataLoader(collate_fn=collate_fn, **kwargs)
+    _collate_fn = partial(collate_fn, max_len=kwargs["max_len"])
+
+    if "max_len" in kwargs:
+        del kwargs["max_len"]
+        
+    return DataLoader(collate_fn=_collate_fn, **kwargs)
 
 
 class RiidDataset(Dataset):
@@ -59,17 +56,9 @@ class RiidDataset(Dataset):
         self.data_root_dir = data_root_dir
         self.split = split
 
-    @property
-    def indexes_dir(self):
-        return os.path.join(self.data_root_dir, "indexes")
-
-    @property
-    def instances_dir(self):
-        return os.path.join(self.data_root_dir, self.split)
-
-    @property
-    def file_list(self):
-        return list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
+        self.indexes_dir = os.path.join(self.data_root_dir, "indexes")
+        self.instances_dir = os.path.join(self.data_root_dir, self.split)
+        self.file_list = list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
 
     def __len__(self):
         return len(self.file_list)
