@@ -13,24 +13,22 @@ class Predictor(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
-        self.hparams = kwargs
-
-        content_id_size = self.hparams["content_id_size"]
-        content_id_dim = self.hparams["content_id_dim"]
+        content_id_size = kwargs["content_id_size"]
+        content_id_dim = kwargs["content_id_dim"]
 
         self.content_id_emb = nn.Embedding(num_embeddings=content_id_size,
                                            embedding_dim=content_id_dim,
                                            padding_idx=0)
 
-        if self.hparams["emb_dropout"] > 0:
-            self.emb_dropout = InputVariationalDropout(p=self.hparams["emb_dropout"])
+        if kwargs["emb_dropout"] > 0:
+            self.emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
 
-        lstm_in_dim = self.hparams["feature_dim"] + self.hparams["content_id_dim"]
-        lstm_hidden_dim = self.hparams["lstm_hidden_dim"]
-        lstm_num_layers = self.hparams["lstm_num_layers"]
-        lstm_dropout = self.hparams["lstm_dropout"]
+        lstm_in_dim = kwargs["feature_dim"] + kwargs["content_id_dim"]
+        lstm_hidden_dim = kwargs["lstm_hidden_dim"]
+        lstm_num_layers = kwargs["lstm_num_layers"]
+        lstm_dropout = kwargs["lstm_dropout"]
 
-        self.encoder_type = self.hparams.get("encoder_type", "vanilla_lstm")
+        self.encoder_type = kwargs.get("encoder_type", "vanilla_lstm")
         if self.encoder_type == "vanilla_lstm":
             self.encoder = nn.LSTM(input_size=lstm_in_dim,
                                    hidden_size=lstm_hidden_dim,
@@ -50,27 +48,39 @@ class Predictor(pl.LightningModule):
                                                 hidden_size=lstm_hidden_dim,
                                                 num_layers=lstm_num_layers,
                                                 recurrent_dropout_probability=lstm_dropout,
-                                                use_highway=self.hparams.get("lstm_use_highway", True))
+                                                use_highway=kwargs.get("lstm_use_highway", True))
 
-        if self.hparams.get("layer_norm", False):
+        if kwargs.get("layer_norm", False):
             self.layer_norm = nn.LayerNorm(lstm_hidden_dim)
 
-        if self.hparams["output_dropout"] > 0:
-            self.output_dropout = InputVariationalDropout(p=self.hparams["output_dropout"])
+        if kwargs["output_dropout"] > 0:
+            self.output_dropout = InputVariationalDropout(p=kwargs["output_dropout"])
 
         self.hidden2logit = nn.Linear(in_features=lstm_hidden_dim,
                                       out_features=1)
 
-        if "content_id_adj" in self.hparams and "smoothness_alpha" in self.hparams:
+        if "content_adj_mat" in kwargs and "smoothness_alpha" in kwargs:
             # normalize adjacency weight with w_ij/(sqrt(d_i)*sqrt(d_j))
-            adjacency_mat = self.hparams["content_id_adj"]
+            adjacency_mat = kwargs["content_adj_mat"]
+            del kwargs["content_adj_mat"]
             degree_mat = adjacency_mat.sum(dim=1)
             inv_degree_mat = torch.diag(torch.pow(degree_mat, -0.5))
-            self.hparams["content_id_adj"] = inv_degree_mat @ adjacency_mat @ inv_degree_mat
+            self.content_id_adj = inv_degree_mat @ adjacency_mat @ inv_degree_mat
+
+            self.smoothness_alpha = kwargs["smoothness_alpha"]
 
             self.criterion = self.BCE_logit_emb_smooth_loss
         else:
-            self.criterion = F.binary_cross_entropy_with_logits
+            self.criterion = self.__class__.binary_cross_entropy_with_logits
+
+        self.hparams = kwargs
+
+    @staticmethod
+    def binary_cross_entropy_with_logits(input, target, weight=None, size_average=None,
+                                         reduce=None, reduction='mean', pos_weight=None):
+        loss = F.binary_cross_entropy_with_logits(input, target, weight=weight, size_average=size_average,
+                                                  reduce=reduce, reduction=reduction, pos_weight=pos_weight)
+        return loss / weight.sum()
 
     def BCE_logit_emb_smooth_loss(self, input, target, weight=None, size_average=None,
                                   reduce=None, reduction='mean', pos_weight=None):
@@ -81,17 +91,17 @@ class Predictor(pl.LightningModule):
                                                       reduce=reduce,
                                                       reduction=reduction,
                                                       pos_weight=pos_weight)
-
-        content_id_adj = self.hparams["content_id_adj"]
-        smoothness_alpha = self.hparams["smoothness_alpha"]
+        bce_loss = bce_loss / weight.sum()
 
         content_emb_weight = self.content_id_emb.weight
         content_emb_weight = F.softmax(content_emb_weight, dim=1)
 
-        smoothness_loss = torch.matmul(content_emb_weight, content_emb_weight.T) * content_id_adj
+        smoothness_loss = torch.matmul(content_emb_weight, content_emb_weight.T) * self.content_id_adj
         smoothness_loss = torch.linalg.norm(smoothness_loss, ord="fro")
 
-        return (1-smoothness_alpha)*bce_loss + smoothness_alpha*smoothness_loss
+        loss = ((1 - self.smoothness_alpha) * bce_loss) + (self.smoothness_alpha * smoothness_loss)
+
+        return loss
 
     @staticmethod
     def get_lengths_from_seq_mask(mask: torch.Tensor) -> torch.Tensor:
@@ -210,7 +220,6 @@ class Predictor(pl.LightningModule):
                               target=actual,
                               weight=flatten_mask,
                               reduction="sum")
-        loss = loss / flatten_mask.sum()
 
         if self.hparams.get("b_flooding") is not None:
             b = torch.tensor(self.hparams["b_flooding"], dtype=torch.float)
