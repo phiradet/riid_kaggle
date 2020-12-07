@@ -61,7 +61,37 @@ class Predictor(pl.LightningModule):
         self.hidden2logit = nn.Linear(in_features=lstm_hidden_dim,
                                       out_features=1)
 
-        self.criterion = F.binary_cross_entropy_with_logits
+        if "content_id_adj" in self.hparams and "smoothness_alpha" in self.hparams:
+            # normalize adjacency weight with w_ij/(sqrt(d_i)*sqrt(d_j))
+            adjacency_mat = self.hparams["content_id_adj"]
+            degree_mat = adjacency_mat.sum(dim=1)
+            inv_degree_mat = torch.diag(torch.pow(degree_mat, -0.5))
+            self.hparams["content_id_adj"] = inv_degree_mat @ adjacency_mat @ inv_degree_mat
+
+            self.criterion = self.BCE_logit_emb_smooth_loss
+        else:
+            self.criterion = F.binary_cross_entropy_with_logits
+
+    def BCE_logit_emb_smooth_loss(self, input, target, weight=None, size_average=None,
+                                  reduce=None, reduction='mean', pos_weight=None):
+        bce_loss = F.binary_cross_entropy_with_logits(input,
+                                                      target,
+                                                      weight=weight,
+                                                      size_average=size_average,
+                                                      reduce=reduce,
+                                                      reduction=reduction,
+                                                      pos_weight=pos_weight)
+
+        content_id_adj = self.hparams["content_id_adj"]
+        smoothness_alpha = self.hparams["smoothness_alpha"]
+
+        content_emb_weight = self.content_id_emb.weight
+        content_emb_weight = F.softmax(content_emb_weight, dim=1)
+
+        smoothness_loss = torch.matmul(content_emb_weight, content_emb_weight.T) * content_id_adj
+        smoothness_loss = torch.linalg.norm(smoothness_loss, ord="fro")
+
+        return (1-smoothness_alpha)*bce_loss + smoothness_alpha*smoothness_loss
 
     @staticmethod
     def get_lengths_from_seq_mask(mask: torch.Tensor) -> torch.Tensor:
