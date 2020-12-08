@@ -25,7 +25,15 @@ class Predictor(pl.LightningModule):
         if kwargs["emb_dropout"] > 0:
             self.emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
 
-        lstm_in_dim = kwargs["feature_dim"] + kwargs["content_id_dim"]
+        feature_dim = kwargs["feature_dim"] + kwargs["content_id_dim"]
+        if "lstm_in_dim" in kwargs and kwargs["lstm_in_dim"] != feature_dim:
+            lstm_in_dim = kwargs["lstm_in_dim"]
+            self.lstm_in_proj = nn.Linear(in_features=feature_dim,
+                                          out_features=lstm_in_dim,
+                                          bias=True)
+        else:
+            lstm_in_dim = feature_dim
+
         lstm_hidden_dim = kwargs["lstm_hidden_dim"]
         lstm_num_layers = kwargs["lstm_num_layers"]
         lstm_dropout = kwargs["lstm_dropout"]
@@ -140,7 +148,11 @@ class Predictor(pl.LightningModule):
         if self.hparams["emb_dropout"] > 0:
             content_emb = self.emb_dropout(content_emb)
 
+        # content_emb: (batch, seq, dim)
         feature = torch.cat([content_emb, feature], dim=-1)
+        if hasattr(self, "lstm_in_proj"):
+            feature = self.lstm_in_proj(feature)
+            feature = F.relu(feature)
 
         # Apply LSTM
         sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)

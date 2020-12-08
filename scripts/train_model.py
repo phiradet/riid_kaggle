@@ -22,7 +22,8 @@ def main(data_root_dir: str,
          lstm_hidden_dim: int = 512,
          layer_norm: bool = True,
          lr: float = 0.05,
-         smoothness_alpha: float = 0.3):
+         smoothness_alpha: float = 0.3,
+         lstm_in_dim: int = 256):
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
     print("gpus", gpus, type(gpus))
@@ -55,6 +56,7 @@ def main(data_root_dir: str,
                   bundle_id_size=len(bundle_id_idx) + 1,
                   bundle_id_dim=128,
                   feature_dim=204,
+                  lstm_in_dim=lstm_in_dim,
                   lstm_hidden_dim=lstm_hidden_dim,
                   lstm_num_layers=lstm_num_layers,
                   lstm_dropout=0.1,
