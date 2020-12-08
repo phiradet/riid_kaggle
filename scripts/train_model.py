@@ -23,7 +23,7 @@ def main(data_root_dir: str,
          layer_norm: bool = True,
          lr: float = 0.05,
          smoothness_alpha: float = 0.3,
-         lstm_in_dim: int = 256):
+         lstm_in_dim: int = 460):
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
     print("gpus", gpus, type(gpus))
