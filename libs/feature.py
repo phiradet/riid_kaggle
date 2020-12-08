@@ -102,4 +102,9 @@ def extract_feature(rows: pd.DataFrame,
         if to_sparse:
             instance["y"] = y_vec.to_sparse()
 
+    if not to_sparse:
+        is_question_mask = (rows["content_type_id"] == 0).values
+        is_question_mask = torch.tensor(is_question_mask, dtype=torch.bool)
+        instance["is_question_mask"] = is_question_mask
+
     return instance

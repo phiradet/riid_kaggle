@@ -60,7 +60,8 @@ class Inferencer(object):
         output = {
             "content_id": instances["content_id"],
             "feature": instances["feature"],
-            "row_id": torch.tensor(rows["row_id"].values, dtype=torch.int)
+            "row_id": torch.tensor(rows["row_id"].values, dtype=torch.int),
+            "is_question_mask": instances["is_question_mask"]
         }
 
         return pd.Series(output)
@@ -74,8 +75,7 @@ class Inferencer(object):
         else:
             raise NotImplementedError
 
-    def predict(self, test_df: pd.DataFrame) -> pd.DataFrame:
-
+    def predict(self, test_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
         df = test_df.groupby("user_id").apply(self.aggregate)
 
         user_ids = df.index.to_list()
@@ -89,11 +89,14 @@ class Inferencer(object):
         batch_size, seq_len, dim = feature_tensor.shape
 
         seq_len_mask = (content_id_tensor != 0).to(dtype=torch.uint8)
-        question_mask = (content_id_tensor >= 0).to(dtype=torch.uint8)
+        is_question_mask = pad_sequence(df["is_question_mask"].to_list(), batch_first=True)
 
         initial_state = self.get_state(user_ids)
 
         with torch.no_grad():
+            if verbose:
+                print("feature_tensor", feature_tensor.shape)
+                print("content_id_tensor", content_id_tensor.shape)
             pred_logit, state = self.model(content_id=content_id_tensor,
                                            bundle_id=None,
                                            feature=feature_tensor,
@@ -103,18 +106,16 @@ class Inferencer(object):
 
         self.update_state(user_ids, initial_state)
 
-        flatten_seq_mask = seq_len_mask.view(batch_size * seq_len)
-        flatten_question_mask = question_mask.view(batch_size * seq_len)
+        flatten_is_quesion_maks = is_question_mask.view(batch_size * seq_len)
+        flatten_seq_mask = seq_len_mask.view(batch_size * seq_len).bool()
+
         flatten_pred = torch.sigmoid(pred_logit.view(batch_size * seq_len))
         flatten_row_id = row_id_tensor.view(batch_size * seq_len)
 
-        flatten_mask = (flatten_seq_mask & flatten_question_mask).bool()
-        flatten_pred = flatten_pred[flatten_mask].data.numpy()
-        flatten_row_id = flatten_row_id[flatten_mask].data.numpy()
+        flatten_pred = flatten_pred[flatten_seq_mask & flatten_is_quesion_maks].data.numpy()
+        flatten_row_id = flatten_row_id[flatten_seq_mask & flatten_is_quesion_maks].data.numpy()
 
         pred_df = pd.DataFrame({"row_id": flatten_row_id,
-                                "answered_correctly": flatten_pred}) \
-            .sort_values("row_id") \
-            .reset_index(drop=True)
+                                "answered_correctly": flatten_pred})
 
         return pred_df
