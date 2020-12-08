@@ -1,3 +1,5 @@
+from typing import *
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,7 +7,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import pytorch_lightning as pl
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
 
-from libs.modules.stacked_augmented_lstm import StackedAugmentedLSTM
+from libs.modules.stacked_augmented_lstm import StackedAugmentedLSTM, TensorPair
 
 
 class Predictor(pl.LightningModule):
@@ -96,8 +98,9 @@ class Predictor(pl.LightningModule):
         content_emb_weight = self.content_id_emb.weight
         content_emb_weight = F.softmax(content_emb_weight, dim=1)
 
+        num_embs, dim = content_emb_weight.shape
         smoothness_loss = torch.matmul(content_emb_weight, content_emb_weight.T) * self.content_id_adj
-        smoothness_loss = torch.linalg.norm(smoothness_loss, ord="fro")
+        smoothness_loss = - torch.linalg.norm(smoothness_loss, ord="fro") / num_embs
 
         loss = ((1 - self.smoothness_alpha) * bce_loss) + (self.smoothness_alpha * smoothness_loss)
 
@@ -129,7 +132,8 @@ class Predictor(pl.LightningModule):
                 bundle_id: torch.LongTensor,
                 feature: torch.FloatTensor,
                 user_id: torch.FloatTensor,
-                mask: torch.Tensor):
+                mask: torch.Tensor,
+                initial_state: Optional[TensorPair] = None):
         # content_emb: (batch, seq, dim)
         content_emb = self.content_id_emb(content_id)
 
@@ -158,6 +162,8 @@ class Predictor(pl.LightningModule):
             lstm_out = lstm_out.index_select(0, restoration_indices)
             h_t = h_t.index_select(1, restoration_indices)
             c_t = c_t.index_select(1, restoration_indices)
+            state = (h_t, c_t)
+
         else:
             packed_sequence_input = pack_padded_sequence(feature,
                                                          sequence_lengths.data.tolist(),
@@ -167,7 +173,8 @@ class Predictor(pl.LightningModule):
             # encoder_out: (batch, seq_len, num_directions * hidden_size):
             # h_t: (num_layers * num_directions, batch, hidden_size)
             #    - this dimension is valid regardless of batch_first=True!!
-            packed_lstm_out, (h_t, c_t) = self.encoder(packed_sequence_input)
+            packed_lstm_out, state = self.encoder(packed_sequence_input,
+                                                  initial_state)
 
             # lstm_out: (batch, seq, num_directions * hidden_size)
             lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
@@ -182,7 +189,7 @@ class Predictor(pl.LightningModule):
 
         y_pred = torch.squeeze(self.hidden2logit(lstm_out), dim=-1)  # (batch, seq)
 
-        return y_pred, (h_t, c_t)
+        return y_pred, state
 
     def _step(self, batch):
         actual = batch["y"]  # (batch, seq)
