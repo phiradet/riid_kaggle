@@ -4,14 +4,15 @@ import pandas as pd
 import dask.dataframe as dd
 
 
+def format_content_id(row: pd.Series) -> int:
+    if row["content_type_id"]:  # lecture
+        return -1 * row["content_id"]
+    else:
+        return row["content_id"]
+
+
 def read_data(data_path: str, npartitions: int) -> dd.DataFrame:
     df: dd.DataFrame = dd.read_parquet(data_path).repartition(npartitions)
-
-    def format_content_id(row: pd.Series) -> int:
-        if row["content_type_id"]:  # lecture
-            return -1 * row["content_id"]
-        else:
-            return row["content_id"]
 
     df["content_id"] = df.apply(format_content_id, meta=pd.Series([1, 2, 3]), axis=1)
     return df
