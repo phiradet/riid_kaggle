@@ -9,6 +9,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from libs.dataset import RiidDataset, get_data_loader
 from libs.model import Predictor
+from libs.utils.graph import get_content_adjacency_matrix
 
 
 def main(data_root_dir: str,
@@ -20,7 +21,10 @@ def main(data_root_dir: str,
          lstm_num_layers: int = 2,
          lstm_hidden_dim: int = 512,
          layer_norm: bool = True,
-         lr: float = 0.05):
+         lr: float = 0.05,
+         smoothness_alpha: float = 0.3,
+         lstm_in_dim: int = 460):
+
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
     print("gpus", gpus, type(gpus))
@@ -44,22 +48,34 @@ def main(data_root_dir: str,
                                  max_len=max_len)
 
     bundle_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/bundle_id_idx.pickle"), "rb"))
-    part_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/part_idx.pickle"), "rb"))
     content_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/content_id_idx.pickle"), "rb"))
-    type_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/type_idx.pickle"), "rb"))
 
     config = dict(content_id_size=len(content_id_idx) + 1,
                   content_id_dim=256,
                   bundle_id_size=len(bundle_id_idx) + 1,
                   bundle_id_dim=128,
                   feature_dim=204,
+                  lstm_in_dim=lstm_in_dim,
                   lstm_hidden_dim=lstm_hidden_dim,
                   lstm_num_layers=lstm_num_layers,
                   lstm_dropout=0.1,
                   emb_dropout=0.3,
                   output_dropout=0.3,
                   layer_norm=layer_norm,
-                  lr=lr)
+                  lr=lr,
+                  encoder_type="augmented_lstm")
+
+    if smoothness_alpha > 0:
+        content_adj_mat = get_content_adjacency_matrix(questions_path="./dataset/questions.csv",
+                                                       lectures_path="./dataset/lectures.csv",
+                                                       content_id_idx=content_id_idx,
+                                                       no_question_lecture_link=True)
+        config["smoothness_alpha"] = smoothness_alpha
+        config["content_adj_mat"] = content_adj_mat
+
+    print("====== Model config =====")
+    print(config)
+    print("=========================")
 
     model = Predictor(**config)
     print(model)

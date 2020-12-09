@@ -2,6 +2,7 @@ import os
 import glob
 from typing import *
 from functools import partial
+from collections import defaultdict
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -60,8 +61,72 @@ class RiidDataset(Dataset):
         self.instances_dir = os.path.join(self.data_root_dir, self.split)
         self.file_list = list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.file_list)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> Dict[str, torch.tensor]:
         return torch.load(self.file_list[idx])
+
+
+class MultiRiidDataset(Dataset):
+
+    def __init__(self, data_root_dir: str, splits: List[str], verbose: bool = False):
+        self.data_root_dir = data_root_dir
+        self.splits = splits
+        self.verbose = verbose
+
+        self.indexes_dir = os.path.join(self.data_root_dir, "indexes")
+        self.instance_dirs = [os.path.join(self.data_root_dir, s) for s in self.splits]
+
+        self.file_list = self.get_file_list()
+        self.user_ids = list(sorted(self.file_list.keys()))
+
+        if self.verbose:
+            print(self.file_list)
+            print(self.user_ids)
+
+        print("Number of users", len(self.user_ids))
+
+    @staticmethod
+    def get_user_ids(file_path) -> int:
+        filename, _ = os.path.splitext(os.path.basename(file_path))
+        split, user_id = filename.split("_")
+
+        return int(user_id)
+
+    def get_file_list(self) -> Dict[str, List[str]]:
+        output = defaultdict(list)
+        for dir in self.instance_dirs:
+            for file_path in glob.glob(os.path.join(dir, "*.pth")):
+                user_id = self.__class__.get_user_ids(file_path)
+                output[user_id].append(file_path)
+        return dict(output)
+
+    def __len__(self) -> int:
+        return len(self.user_ids)
+
+    def __getitem__(self, idx) -> Dict[str, torch.tensor]:
+        user_id = self.user_ids[idx]
+
+        instances: List[Dict[str, torch.tensor]] = []
+        for file in self.file_list[user_id]:
+            instances.append(torch.load(file))
+
+        collated_instance = {}
+
+        if self.verbose:
+            print(instances[0]["user_id"])
+
+        for k in instances[0].keys():
+            if k == "user_id":
+                collated_instance[k] = instances[0]["user_id"]
+            else:
+                collated_instance[k] = torch.cat([i[k] for i in instances], dim=0)
+
+            if self.verbose:
+                print(k, collated_instance[k].shape)
+
+        if self.verbose:
+            print()
+
+        return collated_instance
