@@ -20,10 +20,12 @@ def step(batch, model, verbose=False):
     actual = actual.view(batch_size * seq_len).float()
     actual[actual < 0] = 0
 
-    content_id = batch["content_id"]
-    bundle_id = batch["bundle_id"]
-    feature = batch["feature"]
-    user_id = batch["user_id"]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    content_id = batch["content_id"].to(device)
+    bundle_id = batch["bundle_id"].to(device)
+    feature = batch["feature"].to(device)
+    user_id = batch["user_id"].to(device)
 
     if verbose:
         print(user_id)
@@ -46,7 +48,10 @@ def main(model_config_file: str,
          data_root_dir: str,
          batch_size: int = 128,
          verbose: bool = False):
-    dataset = MultiRiidDataset(data_root_dir, ["train_dense", "val_dense"], verbose)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print("device", device)
+
+    dataset = MultiRiidDataset(data_root_dir, ["train_dense"], verbose)
     data_loader = get_data_loader(dataset=dataset,
                                   batch_size=batch_size,
                                   shuffle=False,
@@ -56,6 +61,9 @@ def main(model_config_file: str,
 
     model_config = json.load(open(model_config_file))
     model = Predictor(**model_config).eval()
+
+    if torch.cuda.is_available():
+        model = model.to(device) 
 
     state_dict = load_state_dict(checkpoint_dir)
     model.load_state_dict(state_dict)
