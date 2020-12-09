@@ -1,4 +1,5 @@
 import os
+import glob
 import json
 import pickle
 from multiprocessing import cpu_count
@@ -74,24 +75,29 @@ def main(model_config_file: str,
     with open(os.path.join(output_dir, "user_id_idx.pickle"), "wb") as fp:
         pickle.dump(user_id_idx, fp)
 
-    h_t_tensors = []
-    c_t_tensors = []
     user_ids = []
 
-    for batch in tqdm(data_loader):
+    for idx, batch in tqdm(enumerate(data_loader)):
         h_t, c_t = step(batch, model, verbose=verbose)
-        h_t_tensors.append(h_t)
-        c_t_tensors.append(c_t)
+
+        torch.save(h_t, os.path.join(output_dir, f"h_t.part_{idx:08d}.pth"))
+        torch.save(h_t, os.path.join(output_dir, f"c_t.part_{idx:08d}.pth"))
+
         user_ids.append(batch["user_id"])
+
+    h_t_tensors = [torch.load(f) for f in sorted(glob.glob(os.path.join(output_dir, "h_t.part_*.pth")))]
+    c_t_tensors = [torch.load(f) for f in sorted(glob.glob(os.path.join(output_dir, "c_t.part_*.pth")))]
 
     h_t_tensors = torch.cat(h_t_tensors, dim=1)
     c_t_tensors = torch.cat(c_t_tensors, dim=1)
+    user_ids = torch.cat(user_ids, dim=0)
 
     print("h_t_tensors", h_t_tensors.shape)
     print("c_t_tensors", c_t_tensors.shape)
 
     torch.save(h_t_tensors, os.path.join(output_dir, "h_t.pth"))
     torch.save(c_t_tensors, os.path.join(output_dir, "c_t.pth"))
+    torch.save(user_ids, os.path.join(output_dir, "user_ids.pth"))
 
 
 if __name__ == "__main__":
