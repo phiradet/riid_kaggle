@@ -1,11 +1,11 @@
 import os
 import json
 import pickle
-from typing import *
 from multiprocessing import cpu_count
 
 import torch
 import fire
+from tqdm.auto import tqdm
 
 from libs.dataset import MultiRiidDataset, get_data_loader
 from libs.model import Predictor
@@ -70,7 +70,7 @@ def main(model_config_file: str,
     c_t_tensors = []
     user_ids = []
 
-    for batch in data_loader:
+    for batch in tqdm(data_loader):
         h_t, c_t = step(batch, model, verbose=verbose)
         h_t_tensors.append(h_t)
         c_t_tensors.append(c_t)
