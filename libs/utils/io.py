@@ -1,5 +1,8 @@
+import os
+import glob
 from typing import *
 
+import torch
 import pandas as pd
 import dask.dataframe as dd
 
@@ -44,3 +47,14 @@ def read_contents(questions_path: str, lectures_path: str) -> pd.DataFrame:
 
     cols = ["content_id", "tags", "part", "type_of", "bundle_id"]
     return pd.concat([questions[cols], lectures[cols]])
+
+
+def load_state_dict(checkpoint_dir: str):
+    *_, checkpoint_file = sorted(glob.glob(os.path.join(checkpoint_dir, "epoch=*.ckpt")))
+    print("Load weight from", checkpoint_file)
+    if torch.cuda.is_available():
+        state_dict = torch.load(checkpoint_file)["state_dict"]
+    else:
+        state_dict = torch.load(checkpoint_file, map_location=torch.device('cpu'))["state_dict"]
+
+    return state_dict

@@ -24,6 +24,7 @@ def main(data_root_dir: str,
          lr: float = 0.05,
          smoothness_alpha: float = 0.3,
          lstm_in_dim: int = 460):
+
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
     print("gpus", gpus, type(gpus))
@@ -47,9 +48,7 @@ def main(data_root_dir: str,
                                  max_len=max_len)
 
     bundle_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/bundle_id_idx.pickle"), "rb"))
-    part_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/part_idx.pickle"), "rb"))
     content_id_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/content_id_idx.pickle"), "rb"))
-    type_idx = pickle.load(open(os.path.join(data_root_dir, "indexes/type_idx.pickle"), "rb"))
 
     config = dict(content_id_size=len(content_id_idx) + 1,
                   content_id_dim=256,
@@ -76,6 +75,7 @@ def main(data_root_dir: str,
 
     print("====== Model config =====")
     print(config)
+    print("=========================")
 
     model = Predictor(**config)
     print(model)

@@ -9,6 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from libs.feature import extract_feature
 from libs.model import Predictor
+from libs.utils.io import load_state_dict
 
 
 class Inferencer(object):
@@ -38,13 +39,7 @@ class Inferencer(object):
             self.h0 = torch.load(os.path.join(initial_state_dir, "h0.pth"))
             self.c0 = torch.load(os.path.join(initial_state_dir, "c0.pth"))
 
-        *_, checkpoint_file = sorted(glob.glob(os.path.join(checkpoint_dir, "epoch=*.ckpt")))
-        print("Load weight from", checkpoint_file)
-        if torch.cuda.is_available():
-            state_dict = torch.load(checkpoint_file)["state_dict"]
-        else:
-            state_dict = torch.load(checkpoint_file, map_location=torch.device('cpu'))["state_dict"]
-
+        state_dict = load_state_dict(checkpoint_dir)
         self.model.load_state_dict(state_dict)
         self.model = self.model.eval()
 
