@@ -77,7 +77,7 @@ def main(model_config_file: str,
 
     user_ids = []
 
-    for idx, batch in tqdm(enumerate(data_loader)):
+    for idx, batch in tqdm(enumerate(data_loader), total=len(data_loader)):
         h_t, c_t = step(batch, model, verbose=verbose)
 
         torch.save(h_t, os.path.join(output_dir, f"h_t.part_{idx:08d}.pth"))
