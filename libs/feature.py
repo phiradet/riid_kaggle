@@ -87,6 +87,12 @@ def extract_feature(rows: pd.DataFrame,
 
     user_id = torch.tensor(user_id, dtype=torch.long)
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        content_id_vec = content_id_vec.to(device)
+        feature_mat = feature_mat.to(device)
+
     instance = {
         "user_id": user_id,
         "content_id": content_id_vec,

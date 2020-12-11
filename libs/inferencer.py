@@ -1,6 +1,5 @@
 import os
 import pickle
-import glob
 from typing import *
 
 import torch
@@ -18,27 +17,42 @@ class RNNState(object):
     def __init__(self,
                  known_user_id_idx: Dict[int, int],
                  h_t: torch.tensor,
-                 c_t: torch.tensor):
+                 c_t: torch.tensor,
+                 verbose: bool = False):
 
         self.known_user_id_idx = known_user_id_idx
         self.h_t = h_t
         self.c_t = c_t
+        self.verbose = verbose
+
+        if verbose:
+            print("Known user:", len(self.known_user_id_idx))
+            print("h_t:", self.h_t.shape)
+            print("c_t:", self.c_t.shape)
 
     @classmethod
     def from_file(cls,
                   initial_state_dir: Optional[str],
                   lstm_num_layers: int,
-                  lstm_hidden_dim: int):
+                  lstm_hidden_dim: int,
+                  verbose: bool):
         if initial_state_dir is None:
             known_user_id_idx = {}
             h_t = torch.zeros(lstm_num_layers, 0, lstm_hidden_dim)
             c_t = torch.zeros(lstm_num_layers, 0, lstm_hidden_dim)
         else:
             known_user_id_idx = pickle.load(open(os.path.join(initial_state_dir, "user_id_idx.pickle"), "rb"))
-            h_t = torch.load(os.path.join(initial_state_dir, "h_t.pth"))
-            c_t = torch.load(os.path.join(initial_state_dir, "c_t.pth"))
 
-        return cls(known_user_id_idx, h_t, c_t)
+            if torch.cuda.is_available():
+                h_t = torch.load(os.path.join(initial_state_dir, "h_t.pth"))
+                c_t = torch.load(os.path.join(initial_state_dir, "c_t.pth"))
+            else:
+                h_t = torch.load(os.path.join(initial_state_dir, "h_t.pth"),
+                                 map_location=torch.device('cpu'))
+                c_t = torch.load(os.path.join(initial_state_dir, "c_t.pth"),
+                                 map_location=torch.device('cpu'))
+
+        return cls(known_user_id_idx, h_t, c_t, verbose)
 
     def update_state(self, user_ids: List[int], states: TensorPair):
 
@@ -79,6 +93,10 @@ class RNNState(object):
             selection_ids = torch.tensor(selection_ids, dtype=torch.long)
             known_user_mask = selection_ids >= 0
 
+            if self.verbose:
+                print("Known user count", known_user_mask.int().sum())
+                print("Unknown user count", (selection_ids < 0).int().sum())
+
             known_user_h_t = self.h_t[:, selection_ids[known_user_mask], :]
             known_user_c_t = self.c_t[:, selection_ids[known_user_mask], :]
 
@@ -105,10 +123,12 @@ class Inferencer(object):
                  idx_map_dir: str,
                  checkpoint_dir: str,
                  initial_state_dir: Optional[str] = None,
-                 seq_len: Optional[int] = None):
+                 seq_len: Optional[int] = None,
+                 verbose: bool = False):
 
         self.model_config = model_config
         self.model = Predictor(**model_config)
+        self.verbose = verbose
 
         if idx_map_dir is not None:
             self.part_idx = pickle.load(open(os.path.join(idx_map_dir, f"part_idx.pickle"), "rb"))
@@ -119,11 +139,16 @@ class Inferencer(object):
         self.seq_len = seq_len
         self.rnn_state = RNNState.from_file(initial_state_dir=initial_state_dir,
                                             lstm_hidden_dim=self.model_config["lstm_hidden_dim"],
-                                            lstm_num_layers=self.model_config["lstm_num_layers"])
+                                            lstm_num_layers=self.model_config["lstm_num_layers"],
+                                            verbose=verbose)
 
         state_dict = load_state_dict(checkpoint_dir)
         self.model.load_state_dict(state_dict)
         self.model = self.model.eval()
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            self.model = self.model.to(self.device)
 
     def aggregate(self, rows: pd.DataFrame) -> pd.Series:
         rows = rows.sort_values("timestamp").reset_index(drop=True)
@@ -167,6 +192,13 @@ class Inferencer(object):
 
         initial_state = self.get_state(user_ids)
 
+        if torch.cuda.is_available():
+            content_id_tensor = content_id_tensor.to(self.device)
+            feature_tensor = feature_tensor.to(self.device)
+            seq_len_mask = seq_len_mask.to(self.device)
+            initial_state[0] = initial_state[0].to(self.device)
+            initial_state[1] = initial_state[1].to(self.device)
+
         with torch.no_grad():
             if verbose:
                 print("feature_tensor", feature_tensor.shape)
@@ -179,7 +211,7 @@ class Inferencer(object):
                                            mask=seq_len_mask,
                                            initial_state=initial_state)
 
-        self.update_state(user_ids, initial_state)
+            self.update_state(user_ids, initial_state)
 
         flatten_is_quesion_maks = is_question_mask.view(batch_size * seq_len)
         flatten_seq_mask = seq_len_mask.view(batch_size * seq_len).bool()
