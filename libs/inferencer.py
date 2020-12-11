@@ -20,9 +20,11 @@ class RNNState(object):
                  c_t: torch.tensor,
                  verbose: bool = False):
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
         self.known_user_id_idx = known_user_id_idx
-        self.h_t = h_t
-        self.c_t = c_t
+        self.h_t = h_t.to(self.device)
+        self.c_t = c_t.to(self.device)
         self.verbose = verbose
 
         if verbose:
@@ -66,12 +68,18 @@ class RNNState(object):
                 selection_ids.append(new_user_idx)
                 self.known_user_id_idx[user_id] = new_user_idx
 
-        selection_ids = torch.tensor(selection_ids, dtype=torch.long)
+        selection_ids = torch.tensor(selection_ids,
+                                     dtype=torch.long,
+                                     device=self.device)
 
         num_layers, known_user_count, hidden_size = self.h_t.shape
         unknown_user_count = len(self.known_user_id_idx) - known_user_count
 
-        zero_tensor = torch.zeros(num_layers, unknown_user_count, hidden_size, dtype=self.h_t.dtype)
+        zero_tensor = torch.zeros(num_layers,
+                                  unknown_user_count,
+                                  hidden_size,
+                                  dtype=self.h_t.dtype,
+                                  device=self.device)
         self.h_t = torch.cat([self.h_t, zero_tensor], dim=1)
         self.c_t = torch.cat([self.c_t, zero_tensor], dim=1)
 
@@ -90,7 +98,10 @@ class RNNState(object):
             for idx, user_id in enumerate(user_ids):
                 selection_ids.append(self.known_user_id_idx.get(user_id, -1))
 
-            selection_ids = torch.tensor(selection_ids, dtype=torch.long)
+            selection_ids = torch.tensor(selection_ids,
+                                         dtype=torch.long,
+                                         device=self.device)
+
             known_user_mask = selection_ids >= 0
 
             if self.verbose:
@@ -101,8 +112,10 @@ class RNNState(object):
             known_user_c_t = self.c_t[:, selection_ids[known_user_mask], :]
 
             num_layers, _, hidden_size = self.h_t.shape
-            output_h_t = torch.zeros(num_layers, len(user_ids), hidden_size, dtype=self.h_t.dtype)
-            output_c_t = torch.zeros(num_layers, len(user_ids), hidden_size, dtype=self.c_t.dtype)
+            output_h_t = torch.zeros(num_layers, len(user_ids), hidden_size,
+                                     dtype=self.h_t.dtype, device=self.device)
+            output_c_t = torch.zeros(num_layers, len(user_ids), hidden_size,
+                                     dtype=self.c_t.dtype, device=self.device)
 
             output_h_t[:, known_user_mask, :] = known_user_h_t
             output_c_t[:, known_user_mask, :] = known_user_c_t
@@ -190,14 +203,7 @@ class Inferencer(object):
         seq_len_mask = (content_id_tensor != 0).to(dtype=torch.uint8)
         is_question_mask = pad_sequence(df["is_question_mask"].to_list(), batch_first=True)
 
-        initial_state = self.get_state(user_ids)
-
-        if torch.cuda.is_available():
-            content_id_tensor = content_id_tensor.to(self.device)
-            feature_tensor = feature_tensor.to(self.device)
-            seq_len_mask = seq_len_mask.to(self.device)
-            initial_state[0] = initial_state[0].to(self.device)
-            initial_state[1] = initial_state[1].to(self.device)
+        initial_state = list(self.get_state(user_ids))
 
         with torch.no_grad():
             if verbose:
@@ -219,8 +225,8 @@ class Inferencer(object):
         flatten_pred = torch.sigmoid(pred_logit.view(batch_size * seq_len))
         flatten_row_id = row_id_tensor.view(batch_size * seq_len)
 
-        flatten_pred = flatten_pred[flatten_seq_mask & flatten_is_quesion_maks].data.numpy()
-        flatten_row_id = flatten_row_id[flatten_seq_mask & flatten_is_quesion_maks].data.numpy()
+        flatten_pred = flatten_pred[flatten_seq_mask & flatten_is_quesion_maks].cpu().data.numpy()
+        flatten_row_id = flatten_row_id[flatten_seq_mask & flatten_is_quesion_maks].cpu().data.numpy()
 
         pred_df = pd.DataFrame({"row_id": flatten_row_id,
                                 "answered_correctly": flatten_pred})
