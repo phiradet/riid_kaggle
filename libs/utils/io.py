@@ -50,7 +50,12 @@ def read_contents(questions_path: str, lectures_path: str) -> pd.DataFrame:
 
 
 def load_state_dict(checkpoint_dir: str):
-    *_, checkpoint_file = sorted(glob.glob(os.path.join(checkpoint_dir, "epoch=*.ckpt")))
+
+    if os.path.isdir(checkpoint_dir):
+        *_, checkpoint_file = sorted(glob.glob(os.path.join(checkpoint_dir, "epoch=*.ckpt")))
+    else:
+        checkpoint_file = checkpoint_dir
+
     print("Load weight from", checkpoint_file)
     if torch.cuda.is_available():
         state_dict = torch.load(checkpoint_file)["state_dict"]

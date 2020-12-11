@@ -107,4 +107,8 @@ def extract_feature(rows: pd.DataFrame,
         is_question_mask = torch.tensor(is_question_mask, dtype=torch.bool)
         instance["is_question_mask"] = is_question_mask
 
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    for k, v in instance.items():
+        instance[k] = v.to(device)
+
     return instance
