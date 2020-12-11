@@ -1,5 +1,6 @@
 import os
 import pickle
+from typing import *
 from multiprocessing import cpu_count
 
 import fire
@@ -23,7 +24,8 @@ def main(data_root_dir: str,
          layer_norm: bool = True,
          lr: float = 0.05,
          smoothness_alpha: float = 0.3,
-         lstm_in_dim: int = 460):
+         lstm_in_dim: int = 460,
+         truncated_bptt_steps: Optional[int] = None):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -96,7 +98,8 @@ def main(data_root_dir: str,
     trainer = pl.Trainer(max_epochs=max_epochs,
                          callbacks=[checkpoint_callback],
                          logger=logger,
-                         gpus=gpus)
+                         gpus=gpus,
+                         truncated_bptt_steps=truncated_bptt_steps)
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
 
 

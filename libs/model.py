@@ -203,7 +203,7 @@ class Predictor(pl.LightningModule):
 
         return y_pred, state
 
-    def _step(self, batch):
+    def _step(self, batch, hiddens=None):
         actual = batch["y"]  # (batch, seq)
         seq_len_mask = batch["seq_len_mask"]  # (batch, seq)
         question_mask = batch["question_mask"]  # (batch, seq)
@@ -227,11 +227,12 @@ class Predictor(pl.LightningModule):
         feature[torch.isnan(feature)] = 0
         seq_len_mask[torch.isnan(seq_len_mask)] = 0
 
-        pred, _ = self.forward(content_id=content_id,
-                               bundle_id=bundle_id,
-                               feature=feature,
-                               user_id=user_id,
-                               mask=seq_len_mask)
+        pred, hiddens = self.forward(content_id=content_id,
+                                     bundle_id=bundle_id,
+                                     feature=feature,
+                                     user_id=user_id,
+                                     mask=seq_len_mask,
+                                     initial_state=hiddens)
         pred = pred.view(batch_size * seq_len)
 
         flatten_mask = (seq_len_mask & question_mask).view(batch_size * seq_len)
@@ -244,20 +245,51 @@ class Predictor(pl.LightningModule):
             b = torch.tensor(self.hparams["b_flooding"], dtype=torch.float)
             loss = torch.abs(loss - b) + b
 
-        return loss
+        return loss, hiddens
 
-    def training_step(self, batch, batch_idx):
-        loss = self._step(batch)
+    def tbptt_split_batch(self, batch: Dict[str, torch.Tensor], split_size: int) -> list:
+        seq_lens = []
+
+        for key, tensor in batch.items():
+            if tensor.dim() > 1:
+                batch_size, seq_len, *_ = tensor.shape
+                seq_lens.append(seq_len)
+        seq_lens = set(seq_lens)
+
+        assert len(seq_lens) == 1, f"Ambiguous seq_len {seq_lens}"
+
+        seq_len = next(iter(seq_lens))
+
+        splits = []
+        for t in range(0, seq_len, split_size):
+            batch_split = {}
+            for key, tensor in batch.items():
+
+                if tensor.dim() > 1:
+                    tensor = tensor[:, t: t + split_size].contiguous()
+
+                batch_split[key] = tensor
+
+            splits.append(batch_split)
+
+        return splits
+
+    def training_step(self,
+                      batch: Dict[str, torch.Tensor],
+                      batch_idx: int,
+                      hiddens: Optional[TensorPair] = None):
+        loss, hiddens = self._step(batch, hiddens)
         self.logger.experiment.add_scalar("Loss/Train", loss, self.current_epoch)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         outputs = {
-            'loss': loss
+            "loss": loss,
+            "hiddens": hiddens
         }
         return outputs
 
     def validation_step(self, batch, batch_idx):
-        loss = self._step(batch)
+        loss, _ = self._step(batch)
 
         self.logger.experiment.add_scalar("Loss/Validation", loss, self.current_epoch)
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
