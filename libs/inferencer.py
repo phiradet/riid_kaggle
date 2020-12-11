@@ -203,7 +203,7 @@ class Inferencer(object):
         seq_len_mask = (content_id_tensor != 0).to(dtype=torch.uint8)
         is_question_mask = pad_sequence(df["is_question_mask"].to_list(), batch_first=True)
 
-        initial_state = list(self.get_state(user_ids))
+        initial_state = self.get_state(user_ids)
 
         with torch.no_grad():
             if verbose:
@@ -217,7 +217,7 @@ class Inferencer(object):
                                            mask=seq_len_mask,
                                            initial_state=initial_state)
 
-            self.update_state(user_ids, initial_state)
+            self.update_state(user_ids, state)
 
         flatten_is_quesion_maks = is_question_mask.view(batch_size * seq_len)
         flatten_seq_mask = seq_len_mask.view(batch_size * seq_len).bool()
