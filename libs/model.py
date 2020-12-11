@@ -1,8 +1,10 @@
+import sys
 from typing import *
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.linalg import norm
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import pytorch_lightning as pl
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
@@ -106,9 +108,8 @@ class Predictor(pl.LightningModule):
         content_emb_weight = self.content_id_emb.weight
         content_emb_weight = F.softmax(content_emb_weight, dim=1)
 
-        num_embs, dim = content_emb_weight.shape
         smoothness_loss = torch.matmul(content_emb_weight, content_emb_weight.T) * self.content_id_adj
-        smoothness_loss = - torch.linalg.norm(smoothness_loss, ord="fro") / num_embs
+        smoothness_loss = -1 * norm(smoothness_loss, ord="fro") / norm(self.content_id_adj, ord="fro")
 
         loss = ((1 - self.smoothness_alpha) * bce_loss) + (self.smoothness_alpha * smoothness_loss)
 
@@ -156,10 +157,11 @@ class Predictor(pl.LightningModule):
 
         # Apply LSTM
         sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
+        clamped_sequence_lengths = sequence_lengths.clamp(min=1)
 
         if self.encoder_type == "augmented_lstm":
             sorted_feature, sorted_sequence_lengths, restoration_indices, sorting_indices = \
-                self.__class__.sort_batch_by_length(feature, sequence_lengths)
+                self.__class__.sort_batch_by_length(feature, clamped_sequence_lengths)
             packed_sequence_input = pack_padded_sequence(sorted_feature,
                                                          sorted_sequence_lengths.data.tolist(),
                                                          enforce_sorted=False,
@@ -178,7 +180,7 @@ class Predictor(pl.LightningModule):
 
         else:
             packed_sequence_input = pack_padded_sequence(feature,
-                                                         sequence_lengths.data.tolist(),
+                                                         clamped_sequence_lengths.data.tolist(),
                                                          enforce_sorted=False,
                                                          batch_first=True)
 
@@ -263,14 +265,17 @@ class Predictor(pl.LightningModule):
         splits = []
         for t in range(0, seq_len, split_size):
             batch_split = {}
+            batch_seq_len = sys.maxsize
             for key, tensor in batch.items():
 
                 if tensor.dim() > 1:
                     tensor = tensor[:, t: t + split_size].contiguous()
+                    batch_seq_len = min(batch_seq_len, tensor.shape[1])
 
                 batch_split[key] = tensor
 
-            splits.append(batch_split)
+            if batch_seq_len > 0:
+                splits.append(batch_split)
 
         return splits
 
@@ -284,7 +289,7 @@ class Predictor(pl.LightningModule):
 
         outputs = {
             "loss": loss,
-            "hiddens": hiddens
+            "hiddens": (hiddens[0].detach(), hiddens[1].detach())
         }
         return outputs
 
@@ -300,4 +305,19 @@ class Predictor(pl.LightningModule):
         return outputs
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams["lr"])
+        optimizer = self.hparams.get("optimizer", "adam").lower()
+
+        if optimizer == "adam":
+            return torch.optim.Adam(self.parameters(),
+                                    lr=self.hparams.get("lr", 1e-3),
+                                    weight_decay=self.hparams.get("weight_decay", 0))
+        elif optimizer == "sgd":
+            return torch.optim.SGD(self.parameters(),
+                                   lr=self.hparams.get("lr", 1e-3),
+                                   weight_decay=self.hparams.get("weight_decay", 0))
+        elif optimizer == "asgd":
+            return torch.optim.ASGD(self.parameters(),
+                                    lr=self.hparams.get("lr", 1e-2),
+                                    weight_decay=self.hparams.get("weight_decay", 0))
+        else:
+            raise ValueError(f"Unknown optimizer type {optimizer}")

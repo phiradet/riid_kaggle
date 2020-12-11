@@ -20,7 +20,8 @@ def sort_batch_by_length(seq_lens: torch.Tensor):
 
 def collate_fn(instances: List[Dict[str, torch.tensor]],
                batch_first: bool = True,
-               max_len: int = 512) -> Dict[str, torch.tensor]:
+               max_len: int = 512,
+               is_sparse_tensor: bool = False) -> Dict[str, torch.tensor]:
 
     seq_lens = [len(i["y"]) for i in instances]
     seq_max_len = min(max_len, max(seq_lens))
@@ -28,7 +29,10 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     out = {}
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
-            _tensors = [i[k][:seq_max_len] for i in instances]
+            if is_sparse_tensor and (k == "feature" or k == "y"):
+                _tensors = [i[k].to_dense()[:seq_max_len] for i in instances]
+            else:
+                _tensors = [i[k][:seq_max_len] for i in instances]
             padded_tensor = pad_sequence(_tensors, batch_first=batch_first)
         else:
             _tensors = [i[k] for i in instances]
@@ -43,10 +47,15 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
 
 
 def get_data_loader(**kwargs):
-    _collate_fn = partial(collate_fn, max_len=kwargs["max_len"])
+    _collate_fn = partial(collate_fn,
+                          max_len=kwargs.get("max_len", 512),
+                          is_sparse_tensor=kwargs.get("is_sparse_tensor", False))
 
     if "max_len" in kwargs:
         del kwargs["max_len"]
+
+    if "is_sparse_tensor" in kwargs:
+        del kwargs["is_sparse_tensor"]
         
     return DataLoader(collate_fn=_collate_fn, **kwargs)
 
