@@ -39,7 +39,10 @@ def main(data_root_dir: str,
          optimizer: float = "adam",
          overfit_pct: float = 0.0,
          gradient_clip_val: float = 0.0,
-         highway_connection: bool = False):
+         highway_connection: bool = False,
+         track_grad_norm: int = -1,
+         val_check_interval: float = 1.0,
+         resume_from_checkpoint: Optional[str] = None):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -124,7 +127,11 @@ def main(data_root_dir: str,
                          gpus=gpus,
                          truncated_bptt_steps=truncated_bptt_steps,
                          overfit_batches=overfit_pct,
-                         gradient_clip_val=gradient_clip_val)
+                         gradient_clip_val=gradient_clip_val,
+                         track_grad_norm=track_grad_norm,
+                         weights_summary='full',
+                         val_check_interval=val_check_interval,
+                         resume_from_checkpoint=resume_from_checkpoint)
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
 
 
