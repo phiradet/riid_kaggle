@@ -4,7 +4,6 @@ from typing import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.linalg import norm
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import pytorch_lightning as pl
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
@@ -68,6 +67,10 @@ class Predictor(pl.LightningModule):
         if kwargs["output_dropout"] > 0:
             self.output_dropout = InputVariationalDropout(p=kwargs["output_dropout"])
 
+        if kwargs.get("highway_connection", False):
+            self.highway_H = nn.Linear(in_features=lstm_in_dim, out_features=lstm_hidden_dim)
+            self.highway_C = nn.Linear(in_features=lstm_in_dim, out_features=lstm_hidden_dim)
+
         self.hidden2logit = nn.Linear(in_features=lstm_hidden_dim,
                                       out_features=1)
 
@@ -75,7 +78,8 @@ class Predictor(pl.LightningModule):
             # normalize adjacency weight with w_ij/(sqrt(d_i)*sqrt(d_j))
             adjacency_mat = kwargs["content_adj_mat"]
             del kwargs["content_adj_mat"]
-            degree_mat = adjacency_mat.sum(dim=1)
+
+            degree_mat = torch.clamp(adjacency_mat.sum(dim=1), 1e-8)
             inv_degree_mat = torch.diag(torch.pow(degree_mat, -0.5))
             self.content_id_adj = inv_degree_mat @ adjacency_mat @ inv_degree_mat
 
@@ -94,6 +98,25 @@ class Predictor(pl.LightningModule):
                                                   reduce=reduce, reduction=reduction, pos_weight=pos_weight)
         return loss / weight.sum()
 
+    @staticmethod
+    def cosine_distance(x1, x2=None, eps=1e-8):
+        x2 = x1 if x2 is None else x2
+        w1 = x1.norm(p=2, dim=1, keepdim=True)
+        w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
+        return 1 - (torch.matmul(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps))
+
+    @classmethod
+    def content_emb_loss(cls,
+                         content_emb_weight: torch.Tensor,
+                         content_adjacency: torch.Tensor):
+
+        emb_dist = cls.cosine_distance(content_emb_weight)
+
+        masked_emb_dist = emb_dist * content_adjacency
+        normed_emb_dist = masked_emb_dist.sum() / content_adjacency.sum()
+
+        return normed_emb_dist
+
     def BCE_logit_emb_smooth_loss(self, input, target, weight=None, size_average=None,
                                   reduce=None, reduction='mean', pos_weight=None):
         bce_loss = F.binary_cross_entropy_with_logits(input,
@@ -104,12 +127,8 @@ class Predictor(pl.LightningModule):
                                                       reduction=reduction,
                                                       pos_weight=pos_weight)
         bce_loss = bce_loss / weight.sum()
-
-        content_emb_weight = self.content_id_emb.weight
-        content_emb_weight = F.softmax(content_emb_weight, dim=1)
-
-        smoothness_loss = torch.matmul(content_emb_weight, content_emb_weight.T) * self.content_id_adj
-        smoothness_loss = -1 * norm(smoothness_loss, ord="fro") / norm(self.content_id_adj, ord="fro")
+        smoothness_loss = self.__class__.content_emb_loss(content_emb_weight=self.content_id_emb.weight,
+                                                          content_adjacency=self.content_id_adj)
 
         loss = ((1 - self.smoothness_alpha) * bce_loss) + (self.smoothness_alpha * smoothness_loss)
 
@@ -196,7 +215,13 @@ class Predictor(pl.LightningModule):
         if self.hparams.get("layer_norm", False):
             lstm_out = self.layer_norm(lstm_out)
 
-        lstm_out = F.relu(lstm_out)
+        if self.hparams.get("highway_connection", False):
+            c = torch.sigmoid(self.highway_C(lstm_out))
+            h = self.highway_H(lstm_out)
+
+            lstm_out = (1 - c) * torch.relu(h) + c * torch.relu(feature)
+        else:
+            lstm_out = F.relu(lstm_out)
 
         if self.hparams["output_dropout"] > 0:
             lstm_out = self.output_dropout(lstm_out)

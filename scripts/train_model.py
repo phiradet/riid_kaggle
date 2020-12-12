@@ -38,7 +38,8 @@ def main(data_root_dir: str,
          content_id_dim: int = 256,
          optimizer: float = "adam",
          overfit_pct: float = 0.0,
-         gradient_clip_val: float = 0.0):
+         gradient_clip_val: float = 0.0,
+         highway_connection: bool = False):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -82,7 +83,8 @@ def main(data_root_dir: str,
                   layer_norm=layer_norm,
                   lr=lr,
                   encoder_type=encoder_type,
-                  optimizer=optimizer)
+                  optimizer=optimizer,
+                  highway_connection=highway_connection)
 
     if smoothness_alpha > 0:
         content_df = read_contents(questions_path="./dataset/questions.csv",
@@ -121,7 +123,7 @@ def main(data_root_dir: str,
                          logger=logger,
                          gpus=gpus,
                          truncated_bptt_steps=truncated_bptt_steps,
-                         overfit_pct=overfit_pct,
+                         overfit_batches=overfit_pct,
                          gradient_clip_val=gradient_clip_val)
     trainer.fit(model, train_dataloader=train_loader, val_dataloaders=val_loader)
 
