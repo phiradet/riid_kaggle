@@ -18,8 +18,6 @@ class Predictor(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
         content_id_size = kwargs["content_id_size"]
         content_id_dim = kwargs["content_id_dim"]
 
