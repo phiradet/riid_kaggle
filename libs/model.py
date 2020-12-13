@@ -26,7 +26,7 @@ class Predictor(pl.LightningModule):
         if kwargs["emb_dropout"] > 0:
             self.emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
 
-        feature_dim = kwargs["feature_dim"] + kwargs["content_id_dim"]
+        feature_dim = kwargs["feature_dim"] + kwargs["content_id_dim"] + 1
         if "lstm_in_dim" in kwargs and kwargs["lstm_in_dim"] != feature_dim:
             lstm_in_dim = kwargs["lstm_in_dim"]
             self.lstm_in_proj = nn.Linear(in_features=feature_dim,
@@ -71,8 +71,21 @@ class Predictor(pl.LightningModule):
             self.highway_H = nn.Linear(in_features=lstm_in_dim, out_features=lstm_hidden_dim)
             self.highway_C = nn.Linear(in_features=lstm_in_dim, out_features=lstm_hidden_dim)
 
-        self.hidden2logit = nn.Linear(in_features=lstm_hidden_dim,
-                                      out_features=1)
+        hidden2logit_num_layers = kwargs.get("hidden2logit_num_layers", 1)
+        self.hidden2logit = []
+
+        in_features = lstm_hidden_dim
+        for i in range(hidden2logit_num_layers):
+            if i == hidden2logit_num_layers - 1:
+                self.hidden2logit.append(nn.Linear(in_features=in_features,
+                                                   out_features=1))
+            else:
+                self.hidden2logit.append(nn.Linear(in_features=in_features,
+                                                   out_features=in_features // 2))
+                self.hidden2logit.append(nn.ReLU())
+                self.hidden2logit.append(nn.Dropout(p=kwargs["output_dropout"]))
+                in_features = in_features // 2
+        self.hidden2logit = nn.Sequential(*self.hidden2logit)
 
         if "content_adj_mat" in kwargs and "smoothness_alpha" in kwargs:
             # normalize adjacency weight with w_ij/(sqrt(d_i)*sqrt(d_j))
@@ -161,7 +174,9 @@ class Predictor(pl.LightningModule):
                 feature: torch.FloatTensor,
                 user_id: torch.FloatTensor,
                 mask: torch.Tensor,
-                initial_state: Optional[TensorPair] = None):
+                initial_state: Optional[TensorPair] = None,
+                ans_prev_correctly: Optional[torch.Tensor] = None):
+
         # content_emb: (batch, seq, dim)
         content_emb = self.content_id_emb(content_id)
 
@@ -170,6 +185,10 @@ class Predictor(pl.LightningModule):
 
         # content_emb: (batch, seq, dim)
         feature = torch.cat([content_emb, feature], dim=-1)
+
+        if ans_prev_correctly is not None:
+            feature = torch.cat([feature, ans_prev_correctly], dim=-1)
+
         if hasattr(self, "lstm_in_proj"):
             feature = self.lstm_in_proj(feature)
             feature = F.relu(feature)
@@ -231,7 +250,13 @@ class Predictor(pl.LightningModule):
         return y_pred, state
 
     def _step(self, batch, hiddens=None):
-        actual = batch["y"]  # (batch, seq)
+        actual = batch["y"].clone()  # (batch, seq)
+
+        ans_prev_correctly = batch["y"].clone()
+        ans_prev_correctly = torch.roll(ans_prev_correctly, 1, dims=1)
+        ans_prev_correctly[:, 0] = -1
+        ans_prev_correctly = torch.unsqueeze(ans_prev_correctly, dim=2)
+
         seq_len_mask = batch["seq_len_mask"]  # (batch, seq)
         question_mask = batch["question_mask"]  # (batch, seq)
 
@@ -259,7 +284,8 @@ class Predictor(pl.LightningModule):
                                      feature=feature,
                                      user_id=user_id,
                                      mask=seq_len_mask,
-                                     initial_state=hiddens)
+                                     initial_state=hiddens,
+                                     ans_prev_correctly=ans_prev_correctly)
         pred = pred.view(batch_size * seq_len)
 
         flatten_mask = (seq_len_mask & question_mask).view(batch_size * seq_len)

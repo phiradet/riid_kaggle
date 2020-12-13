@@ -42,7 +42,8 @@ def main(data_root_dir: str,
          highway_connection: bool = False,
          track_grad_norm: int = -1,
          val_check_interval: float = 1.0,
-         resume_from_checkpoint: Optional[str] = None):
+         resume_from_checkpoint: Optional[str] = None,
+         hidden2logit_num_layers: int = 1):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -87,7 +88,8 @@ def main(data_root_dir: str,
                   lr=lr,
                   encoder_type=encoder_type,
                   optimizer=optimizer,
-                  highway_connection=highway_connection)
+                  highway_connection=highway_connection,
+                  hidden2logit_num_layers=hidden2logit_num_layers)
 
     if smoothness_alpha > 0:
         content_df = read_contents(questions_path="./dataset/questions.csv",
