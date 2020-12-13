@@ -268,20 +268,20 @@ class Predictor(pl.LightningModule):
                                                   need_weights=False)
             lstm_out = att_output.permute(1, 0, 2)
 
-            # --- get summary ---
-            # summary_query: (1, batch, dim)
-            # summary_vec: (1, batch, dim)
-            summary_query = self.summary_query.repeat(1, batch_size, 1)
-            summary_vec, _ = self.summary_encoder(query=summary_query,
-                                                  key=permuted_feature,
-                                                  value=permuted_feature,
-                                                  attn_mask=None,
-                                                  need_weights=False)
-
-            # summary_vec: (batch, 1, dim)
-            summary_vec = summary_vec.permute(1, 0, 2)
-            state = (summary_vec,)
-
+            # # --- get summary ---
+            # # summary_query: (1, batch, dim)
+            # # summary_vec: (1, batch, dim)
+            # summary_query = self.summary_query.repeat(1, batch_size, 1)
+            # summary_vec, _ = self.summary_encoder(query=summary_query,
+            #                                       key=permuted_feature,
+            #                                       value=permuted_feature,
+            #                                       attn_mask=None,
+            #                                       need_weights=False)
+            #
+            # # summary_vec: (batch, 1, dim)
+            # summary_vec = summary_vec.permute(1, 0, 2)
+            # state = (summary_vec,)
+            state = None
         else:
             packed_sequence_input = pack_padded_sequence(feature,
                                                          clamped_sequence_lengths.data.tolist(),
