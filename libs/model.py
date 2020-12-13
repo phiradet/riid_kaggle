@@ -18,6 +18,8 @@ class Predictor(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
         content_id_size = kwargs["content_id_size"]
         content_id_dim = kwargs["content_id_dim"]
 
@@ -180,7 +182,8 @@ class Predictor(pl.LightningModule):
         return sorted_tensor, sorted_sequence_lengths, restoration_indices, permutation_index
 
     @staticmethod
-    def get_attention_mask(src_seq_len: int, target_seq_len: Optional[int] = None):
+    def get_attention_mask(src_seq_len: int,
+                           target_seq_len: Optional[int] = None):
         """
         positions with True is not allowed to attend
         """
@@ -239,15 +242,19 @@ class Predictor(pl.LightningModule):
             state = (h_t, c_t)
         elif self.encoder_type == "attention":
             if initial_state is None:
-                attention_mask = self.__class__.get_attention_mask(src_seq_len=seq_len)
+                attention_mask = self.__class__ \
+                    .get_attention_mask(src_seq_len=seq_len) \
+                    .to(self.device)
                 permuted_feature = add_positional_features(feature, max_timescale=seq_len) \
                     .permute(1, 0, 2)
                 query = permuted_feature
             else:
                 # initial_state: (batch, 1, dim)
                 initial_state = initial_state[0]
-                attention_mask = self.__class__.get_attention_mask(src_seq_len=seq_len + 1,
-                                                                   target_seq_len=seq_len)
+                attention_mask = self.__class__ \
+                    .get_attention_mask(src_seq_len=seq_len + 1,
+                                        target_seq_len=seq_len) \
+                    .to(self.device)
                 feature = torch.cat([feature, initial_state], dim=1)  # previous sequence summary vector
 
                 # (seq, N, dim)
