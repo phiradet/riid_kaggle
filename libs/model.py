@@ -240,23 +240,27 @@ class Predictor(pl.LightningModule):
             state = (h_t, c_t)
         elif self.encoder_type == "attention":
             if initial_state is None:
+                mask_seq_len = seq_len
                 attention_mask = self.__class__ \
-                    .get_attention_mask(src_seq_len=seq_len) \
+                    .get_attention_mask(src_seq_len=mask_seq_len) \
                     .to(self.device)
                 permuted_feature = add_positional_features(feature, max_timescale=seq_len) \
                     .permute(1, 0, 2)
                 query = permuted_feature
             else:
+                mask_seq_len = seq_len + 1
+
                 # initial_state: (batch, 1, dim)
                 initial_state = initial_state[0]
-                attention_mask = self.__class__ \
-                    .get_attention_mask(src_seq_len=seq_len + 1,
-                                        target_seq_len=seq_len) \
-                    .to(self.device)
                 feature = torch.cat([feature, initial_state], dim=1)  # previous sequence summary vector
 
+                attention_mask = self.__class__ \
+                    .get_attention_mask(src_seq_len=mask_seq_len,
+                                        target_seq_len=seq_len) \
+                    .to(self.device)
+
                 # (seq, N, dim)
-                permuted_feature = add_positional_features(feature, max_timescale=seq_len + 1) \
+                permuted_feature = add_positional_features(feature, max_timescale=mask_seq_len) \
                     .permute(1, 0, 2)
                 query = permuted_feature[1:]
 
@@ -268,20 +272,20 @@ class Predictor(pl.LightningModule):
                                                   need_weights=False)
             lstm_out = att_output.permute(1, 0, 2)
 
-            # # --- get summary ---
-            # # summary_query: (1, batch, dim)
-            # # summary_vec: (1, batch, dim)
-            # summary_query = self.summary_query.repeat(1, batch_size, 1)
-            # summary_vec, _ = self.summary_encoder(query=summary_query,
-            #                                       key=permuted_feature,
-            #                                       value=permuted_feature,
-            #                                       attn_mask=None,
-            #                                       need_weights=False)
-            #
-            # # summary_vec: (batch, 1, dim)
-            # summary_vec = summary_vec.permute(1, 0, 2)
-            # state = (summary_vec,)
-            state = None
+            # --- get summary ---
+            # summary_query: (1, batch, dim);
+            #   - query: (L, N, E) where L = the target sequence len, N = the batch size, E = the embedding dim
+            #   - key: (S, N, E) where S = source sequence len, N is the batch size, E is the embedding dim
+            # summary_vec: (1, batch, dim)
+            summary_query = self.summary_query.repeat(1, batch_size, 1)
+            summary_vec, _ = self.summary_encoder(query=summary_query,
+                                                  key=permuted_feature,
+                                                  value=permuted_feature,
+                                                  attn_mask=torch.zeros(1, mask_seq_len, device=self.device).bool(),
+                                                  need_weights=False)
+            # summary_vec: (batch, 1, dim)
+            summary_vec = summary_vec.permute(1, 0, 2)
+            state = [summary_vec]
         else:
             packed_sequence_input = pack_padded_sequence(feature,
                                                          clamped_sequence_lengths.data.tolist(),
