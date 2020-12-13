@@ -1,3 +1,4 @@
+import math
 import sys
 from typing import *
 
@@ -7,6 +8,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import pytorch_lightning as pl
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
+from allennlp.nn.util import add_positional_features
 
 from libs.modules.stacked_augmented_lstm import StackedAugmentedLSTM, TensorPair
 
@@ -54,6 +56,15 @@ class Predictor(pl.LightningModule):
                                   batch_first=True,
                                   num_layers=lstm_num_layers,
                                   dropout=lstm_dropout)
+        elif self.encoder_type == "attention":
+            self.encoder = nn.MultiheadAttention(embed_dim=lstm_in_dim,
+                                                 num_heads=lstm_num_layers,
+                                                 dropout=lstm_dropout)
+            self.summary_encoder = nn.MultiheadAttention(embed_dim=lstm_in_dim,
+                                                         num_heads=1,
+                                                         dropout=lstm_dropout)
+            self.summary_query = nn.Parameter(torch.FloatTensor(1, 1, lstm_in_dim))
+            nn.init.kaiming_uniform_(self.summary_query, a=math.sqrt(5))
         elif self.encoder_type == "augmented_lstm":
             self.encoder = StackedAugmentedLSTM(input_size=lstm_in_dim,
                                                 hidden_size=lstm_hidden_dim,
@@ -168,6 +179,16 @@ class Predictor(pl.LightningModule):
         restoration_indices = index_range.index_select(0, reverse_mapping)
         return sorted_tensor, sorted_sequence_lengths, restoration_indices, permutation_index
 
+    @staticmethod
+    def get_attention_mask(src_seq_len: int, target_seq_len: Optional[int] = None):
+        """
+        positions with True is not allowed to attend
+        """
+        if target_seq_len is None:
+            target_seq_len = src_seq_len
+        mask = torch.triu(torch.ones(target_seq_len, src_seq_len), diagonal=1).bool()
+        return mask
+
     def forward(self,
                 content_id: torch.LongTensor,
                 bundle_id: torch.LongTensor,
@@ -177,6 +198,7 @@ class Predictor(pl.LightningModule):
                 initial_state: Optional[TensorPair] = None,
                 ans_prev_correctly: Optional[torch.Tensor] = None):
 
+        batch_size, seq_len = content_id.shape
         # content_emb: (batch, seq, dim)
         content_emb = self.content_id_emb(content_id)
 
@@ -215,6 +237,45 @@ class Predictor(pl.LightningModule):
             h_t = h_t.index_select(1, restoration_indices)
             c_t = c_t.index_select(1, restoration_indices)
             state = (h_t, c_t)
+        elif self.encoder_type == "attention":
+            if initial_state is None:
+                attention_mask = self.__class__.get_attention_mask(src_seq_len=seq_len)
+                permuted_feature = add_positional_features(feature, max_timescale=seq_len) \
+                    .permute(1, 0, 2)
+                query = permuted_feature
+            else:
+                # initial_state: (batch, 1, dim)
+                initial_state = initial_state[0]
+                attention_mask = self.__class__.get_attention_mask(src_seq_len=seq_len + 1,
+                                                                   target_seq_len=seq_len)
+                feature = torch.cat([feature, initial_state], dim=1)  # previous sequence summary vector
+
+                # (seq, N, dim)
+                permuted_feature = add_positional_features(feature, max_timescale=seq_len + 1) \
+                    .permute(1, 0, 2)
+                query = permuted_feature[1:]
+
+            # att_output: (seq, batch, dim)
+            att_output, att_weight = self.encoder(query=query,
+                                                  key=permuted_feature,
+                                                  value=permuted_feature,
+                                                  attn_mask=attention_mask,
+                                                  need_weights=False)
+            lstm_out = att_output.permute(1, 0, 2)
+
+            # --- get summary ---
+            # summary_query: (1, batch, dim)
+            # summary_vec: (1, batch, dim)
+            summary_query = self.summary_query.repeat(1, batch_size, 1)
+            summary_vec, _ = self.summary_encoder(query=summary_query,
+                                                  key=permuted_feature,
+                                                  value=permuted_feature,
+                                                  attn_mask=None,
+                                                  need_weights=False)
+
+            # summary_vec: (batch, 1, dim)
+            summary_vec = summary_vec.permute(1, 0, 2)
+            state = (summary_vec,)
 
         else:
             packed_sequence_input = pack_padded_sequence(feature,
@@ -338,9 +399,12 @@ class Predictor(pl.LightningModule):
         self.logger.experiment.add_scalar("Loss/Train", loss, self.current_epoch)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
+        if hiddens is not None:
+            hiddens = [h.detach() for h in hiddens]
+
         outputs = {
             "loss": loss,
-            "hiddens": (hiddens[0].detach(), hiddens[1].detach())
+            "hiddens": hiddens
         }
         return outputs
 
