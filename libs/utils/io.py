@@ -62,4 +62,10 @@ def load_state_dict(checkpoint_dir: str):
     else:
         state_dict = torch.load(checkpoint_file, map_location=torch.device('cpu'))["state_dict"]
 
+    if "hidden2logit.weight" in state_dict:
+        state_dict["hidden2logit.0.weight"] = state_dict["hidden2logit.weight"]
+        state_dict["hidden2logit.0.bias"] = state_dict["hidden2logit.bias"]
+
+        del state_dict["hidden2logit.weight"]
+        del state_dict["hidden2logit.bias"]
     return state_dict

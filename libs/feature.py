@@ -101,6 +101,8 @@ def extract_feature(rows: pd.DataFrame,
 
         if to_sparse:
             instance["y"] = y_vec.to_sparse()
+        else:
+            instance["y"] = y_vec
 
     if not to_sparse:
         is_question_mask = (rows["content_type_id"] == 0).values

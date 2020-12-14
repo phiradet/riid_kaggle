@@ -28,7 +28,9 @@ class Predictor(pl.LightningModule):
         if kwargs["emb_dropout"] > 0:
             self.emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
 
-        feature_dim = kwargs["feature_dim"] + kwargs["content_id_dim"] + 1
+        feature_dim = kwargs["feature_dim"] + kwargs["content_id_dim"]
+        if not kwargs.get("no_prev_ans", False):
+            feature_dim += 1
         if "lstm_in_dim" in kwargs and kwargs["lstm_in_dim"] != feature_dim:
             lstm_in_dim = kwargs["lstm_in_dim"]
             self.lstm_in_proj = nn.Linear(in_features=feature_dim,
@@ -204,8 +206,11 @@ class Predictor(pl.LightningModule):
         # content_emb: (batch, seq, dim)
         feature = torch.cat([content_emb, feature], dim=-1)
 
-        if ans_prev_correctly is not None:
-            feature = torch.cat([feature, ans_prev_correctly], dim=-1)
+        if not self.hparams.get("no_prev_ans", False):
+            if ans_prev_correctly is None:
+                ans_prev_correctly = torch.ones(batch_size, seq_len, 1,
+                                                device=self.device, dtype=torch.float)
+            feature = torch.cat([ans_prev_correctly, feature], dim=-1)
 
         if hasattr(self, "lstm_in_proj"):
             feature = self.lstm_in_proj(feature)
