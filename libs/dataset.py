@@ -26,7 +26,7 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     seq_lens = [len(i["y"]) for i in instances]
     seq_max_len = min(max_len, max(seq_lens))
 
-    out = {}
+    out: Dict[str, torch.Tensor] = {}
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
             if is_sparse_tensor and (k == "feature" or k == "y"):

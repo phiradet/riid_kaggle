@@ -10,7 +10,8 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from libs.dataset import RiidDataset, get_data_loader
-from libs.model import Predictor
+from libs.models.baseline import Predictor as BaselinePredictor
+from libs.models.v1 import V1Predictor
 from libs.utils.graph import get_content_adjacency_matrix
 from libs.utils.io import read_contents
 
@@ -43,7 +44,8 @@ def main(data_root_dir: str,
          track_grad_norm: int = -1,
          val_check_interval: float = 1.0,
          resume_from_checkpoint: Optional[str] = None,
-         hidden2logit_num_layers: int = 1):
+         hidden2logit_num_layers: int = 1,
+         model_type="v1"):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -107,7 +109,13 @@ def main(data_root_dir: str,
     print(config)
     print("=========================")
 
-    model = Predictor(**config)
+    if model_type == "baseline":
+        model = BaselinePredictor(**config)
+    elif model_type == "v1":
+        model = V1Predictor(**config)
+    else:
+        raise ValueError
+
     print(model)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"total param: {total_params:,}")

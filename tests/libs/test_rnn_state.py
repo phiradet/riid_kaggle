@@ -1,6 +1,6 @@
 import torch
 
-from libs.inferencer import RNNState
+from libs.inferencers.rnn_state import RNNState
 
 
 def test_get_state_from_empty_object():

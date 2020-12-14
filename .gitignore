@@ -137,3 +137,6 @@ dataset/*
 *checkpoints*
 *states*
 *releases*
+*.zip
+*notebooks*
+scripts/*

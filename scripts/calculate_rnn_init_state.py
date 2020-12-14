@@ -9,7 +9,7 @@ import fire
 from tqdm.auto import tqdm
 
 from libs.dataset import MultiRiidDataset, get_data_loader
-from libs.model import Predictor
+from libs.models.baseline import Predictor
 from libs.utils.io import load_state_dict
 
 
