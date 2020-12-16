@@ -17,27 +17,6 @@ from libs.utils.io import load_state_dict
 
 class _BaseInference(ABC):
 
-    def aggregate(self, rows: pd.DataFrame) -> pd.Series:
-        rows = rows.sort_values("timestamp").reset_index(drop=True)
-        instances: Dict[str, torch.tensor] = extract_feature(rows=rows,
-                                                             part_idx=self.part_idx,
-                                                             type_idx=self.type_idx,
-                                                             bundle_id_idx=self.bundle_id_idx,
-                                                             content_id_idx=self.content_id_idx,
-                                                             seq_len=self.seq_len,
-                                                             to_sparse=False)
-        output = {
-            "content_id": instances["content_id"],
-            "feature": instances["feature"],
-            "row_id": torch.tensor(rows["row_id"].values, dtype=torch.int),
-            "is_question_mask": instances["is_question_mask"],
-        }
-
-        if "y" in instances:
-            output["y"] = instances["y"]
-
-        return pd.Series(output)
-    
     def __init__(self,
                  model_config: Dict[str, Any],
                  idx_map_dir: str,
@@ -71,3 +50,24 @@ class _BaseInference(ABC):
             self.model = self.model.to(self.device)
 
         self.prev_group_test_df = None
+
+    def aggregate(self, rows: pd.DataFrame) -> pd.Series:
+        rows = rows.sort_values("timestamp").reset_index(drop=True)
+        instances: Dict[str, torch.tensor] = extract_feature(rows=rows,
+                                                             part_idx=self.part_idx,
+                                                             type_idx=self.type_idx,
+                                                             bundle_id_idx=self.bundle_id_idx,
+                                                             content_id_idx=self.content_id_idx,
+                                                             seq_len=self.seq_len,
+                                                             to_sparse=False)
+        output = {
+            "content_id": instances["content_id"],
+            "feature": instances["feature"],
+            "row_id": torch.tensor(rows["row_id"].values, dtype=torch.int),
+            "is_question_mask": instances["is_question_mask"],
+        }
+
+        if "y" in instances:
+            output["y"] = instances["y"]
+
+        return pd.Series(output)

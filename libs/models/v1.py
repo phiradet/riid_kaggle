@@ -206,9 +206,12 @@ class V1Predictor(BasePredictor):
         return tensor
 
     @classmethod
-    def to_seen_content_feedback(cls, actual: torch.Tensor) -> torch.FloatTensor:
+    def to_seen_content_feedback(cls,
+                                 actual: torch.Tensor,
+                                 do_shift: bool = True) -> torch.FloatTensor:
         """
         :param actual: (batch, seq)
+        :param do_shift: bool
         :return: (batch, seq, 3)
         """
 
@@ -222,7 +225,10 @@ class V1Predictor(BasePredictor):
                                            is_answer_incorrectly,
                                            is_lecture],
                                           dim=2)
-        return cls._shift_tensor(seen_content_feedback)
+        if do_shift:
+            return cls._shift_tensor(seen_content_feedback)
+        else:
+            return seen_content_feedback
 
     def _step(self, batch, hiddens=None, calculate_roc=False):
         actual: torch.Tensor = batch["y"].clone()  # (batch, seq)
