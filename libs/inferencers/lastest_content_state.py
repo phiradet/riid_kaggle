@@ -34,7 +34,7 @@ class LatestContentState(object):
     def from_file(cls,
                   data_dir: Optional[str] = None,
                   verbose: bool = False,
-                  feature_dim: int = 460,
+                  feature_dim: int = 204,
                   feedback_dim: int = 3):
         if data_dir is None or not cls.found_seen_content_files(data_dir):
             known_user_id_idx = {}
@@ -74,8 +74,8 @@ class LatestContentState(object):
     def _get_last_element(tensor: torch.Tensor,
                           seq_len_mask: torch.Tensor):
         last_ele_index = torch.sum(seq_len_mask, dim=1) - 1
-        batch_size, _ = tensor.shape
-        return tensor[torch.arange(batch_size):last_ele_index]
+        batch_size, *_ = tensor.shape
+        return tensor[torch.arange(batch_size), last_ele_index]
 
     def get_state(self, user_ids: List[int]):
         if len(self.known_user_id_idx) == 0:
@@ -86,7 +86,7 @@ class LatestContentState(object):
             content_feature = torch.zeros(batch_size, self.feature_dim,
                                           dtype=self.content_feature.dtype,
                                           device=self.device)
-            content_feedback = torch.zeros(batch_size,
+            content_feedback = torch.zeros(batch_size, 3,
                                            dtype=self.content_feedback.dtype,
                                            device=self.device)
 
@@ -131,6 +131,7 @@ class LatestContentState(object):
 
         # (batch, 1)
         last_content_id = self.__class__._get_last_element(content_id, mask)
+        last_content_id = torch.unsqueeze(last_content_id, dim=1)
 
         # (batch, dim)
         last_content_feature = self.__class__._get_last_element(content_feature, mask)
@@ -151,17 +152,20 @@ class LatestContentState(object):
                                      dtype=torch.long,
                                      device=self.device)
 
-        src_tensors = [last_content_id,
-                       last_content_feature,
-                       last_content_feedback]
-        dst_tensors = [self.content_id,
-                       self.content_feature,
-                       self.content_feedback]
-        for src, dst in zip(src_tensors, dst_tensors):
-            _, dim = dst.shape
-            zero_tensor = torch.zeros(unknown_user_count,
-                                      dim,
-                                      dtype=dst.dtype,
-                                      device=self.device)
-            dst_tensors = torch.cat([dst_tensors, zero_tensor], dim=1)
-            dst[:, selection_ids, :] = src
+        self.content_id = torch.cat([self.content_id,
+                                     torch.zeros(unknown_user_count, 1,
+                                                 dtype=torch.long,
+                                                 device=self.device)])
+        self.content_id[selection_ids] = last_content_id
+
+        self.content_feature = torch.cat([self.content_feature,
+                                          torch.zeros(unknown_user_count, self.feature_dim,
+                                                      dtype=torch.float,
+                                                      device=self.device)])
+        self.content_feature[selection_ids] = last_content_feature
+
+        self.content_feedback = torch.cat([self.content_feedback,
+                                           torch.zeros(unknown_user_count, 3,
+                                                       dtype=torch.float,
+                                                       device=self.device)])
+        self.content_feedback[selection_ids] = last_content_feedback

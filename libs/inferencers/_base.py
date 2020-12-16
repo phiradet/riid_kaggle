@@ -21,12 +21,13 @@ class _BaseInference(ABC):
                  model_config: Dict[str, Any],
                  idx_map_dir: str,
                  checkpoint_dir: str,
+                 predictor_class: type,
                  initial_state_dir: Optional[str] = None,
                  seq_len: Optional[int] = None,
                  verbose: bool = False):
 
         self.model_config = model_config
-        self.model = Predictor(**model_config)
+        self.model = predictor_class(**model_config)
         self.verbose = verbose
 
         if idx_map_dir is not None:

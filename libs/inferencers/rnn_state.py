@@ -38,6 +38,7 @@ class RNNState(object):
             h_t = torch.zeros(lstm_num_layers, 0, lstm_hidden_dim)
             c_t = torch.zeros(lstm_num_layers, 0, lstm_hidden_dim)
         else:
+            print("Load RNN state from", initial_state_dir)
             known_user_id_idx = pickle.load(open(os.path.join(initial_state_dir, "user_id_idx.pickle"), "rb"))
 
             if torch.cuda.is_available():

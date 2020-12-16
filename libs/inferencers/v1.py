@@ -18,9 +18,10 @@ class V1Inferencer(_BaseInference):
                  initial_state_dir: Optional[str] = None,
                  seq_len: Optional[int] = None,
                  verbose: bool = False):
-        super(V1Inferencer, self).__init__(model_config,
+        super().__init__(model_config,
                                            idx_map_dir,
                                            checkpoint_dir,
+                                           V1Predictor,
                                            initial_state_dir,
                                            seq_len,
                                            verbose)
@@ -64,7 +65,6 @@ class V1Inferencer(_BaseInference):
 
         # first inference run, do nothing
         if len(self.previous_input) > 0:
-
             n = len(self.prev_group_test_df)
             if prior_batch_ans_correct is not None and len(prior_batch_ans_correct) == n:
                 self.prev_group_test_df["answer"] = prior_batch_ans_correct
@@ -75,7 +75,7 @@ class V1Inferencer(_BaseInference):
 
                 user_ids = df.index.to_list()
                 no_padding_seq_len = torch.tensor(df["answer"].str.len().values,
-                                                  dtype=torch.uint8,
+                                                  dtype=torch.long,
                                                   device=self.device)
                 # (batch, seq)
                 prev_group_y = pad_sequence(df["answer"].to_list(),
@@ -84,28 +84,30 @@ class V1Inferencer(_BaseInference):
                 prev_group_feedback = V1Predictor.to_seen_content_feedback(prev_group_y,
                                                                            do_shift=False)
                 # (batch_size, 3)
-                last_content_feedback = prev_group_y[torch.arange(batch_size),
-                                                     no_padding_seq_len - 1]
+                last_content_feedback = prev_group_feedback[torch.arange(batch_size),
+                                                            no_padding_seq_len - 1]
+
                 self.update_last_seen_content_state(last_content_feedback)
 
                 # ===== update prev ans =====
                 prev_seen_content_feedback = self.previous_input["seen_content_feedback"]
-                prev_batch, prev_seq_len = prev_seen_content_feedback.shape
+                prev_batch, prev_seq_len, _ = prev_seen_content_feedback.shape
 
                 # the feedback of the first seen content is either correct or unknown
                 if prev_seq_len > 1:
                     prev_seen_content_feedback[:, 1:] = prev_group_feedback[:, :-1]
                     self.previous_input["seen_content_feedback"] = prev_seen_content_feedback
-        else:
-            self.update_last_seen_content_state(None)
+            else:
+                self.update_last_seen_content_state(None)
 
-        # at this state, all input are completed (as much as the data allow)
-        self.update_rnn_state()
+            # at this state, all input are completed (as much as the data allow)
+            self.update_rnn_state()
 
     def get_seen_content_info(self,
                               user_ids: List[int],
                               content_id: torch.Tensor,
                               content_feature: torch.Tensor):
+        batch, seq_len = content_id.shape
         last_seen_content_state = self.last_seen_content_state.get_state(user_ids)
 
         last_seen_content_id = last_seen_content_state[0]        # (batch, 1)
@@ -113,12 +115,12 @@ class V1Inferencer(_BaseInference):
         last_seen_content_feedback = last_seen_content_state[2]  # (batch, 3)
 
         seen_content_id = torch.roll(content_id, shifts=1, dims=1)
-        seen_content_id[:, 0] = last_seen_content_id
+        seen_content_id[:, 0] = torch.squeeze(last_seen_content_id, dim=-1)
 
         seen_content_feature = torch.roll(content_feature, shifts=1, dims=1)
         seen_content_feature[:, 0] = last_seen_content_feature
 
-        seen_content_feedback = torch.zeros(len(user_ids), 3,
+        seen_content_feedback = torch.zeros(batch, seq_len, 3,
                                             dtype=torch.float,
                                             device=self.device)
         seen_content_feedback[:, 0] = last_seen_content_feedback
@@ -126,9 +128,18 @@ class V1Inferencer(_BaseInference):
         return seen_content_id, seen_content_feature, seen_content_feedback
 
     def predict(self, test_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
-        prior_batch_answer_correctly = test_df["prior_group_answers_correct"].iloc[0]
-        if isinstance(prior_batch_answer_correctly, str):
-            prior_batch_answer_correctly = eval(prior_batch_answer_correctly)
+
+        prior_batch_answer_correctly = None
+
+        if "prior_group_answers_correct" in test_df:
+            try:
+                prior_batch_answer_correctly = test_df["prior_group_answers_correct"].iloc[0]
+                if isinstance(prior_batch_answer_correctly, str):
+                    prior_batch_answer_correctly = eval(prior_batch_answer_correctly)
+            except Exception as e:
+                if verbose:
+                    print("Cannot get prior_group_answers_correct because of {e}")
+
         self.update_state(prior_batch_answer_correctly)
 
         self.prev_group_test_df = test_df.copy()
@@ -152,7 +163,9 @@ class V1Inferencer(_BaseInference):
         initial_state = self.rnn_state.get_state(user_ids)
         model: V1Predictor = self.model
 
-        seen_content_state = self.get_seen_content_info(user_ids=user_ids)
+        seen_content_state = self.get_seen_content_info(user_ids=user_ids,
+                                                        content_id=content_id_tensor,
+                                                        content_feature=feature_tensor)
 
         with torch.no_grad():
             if verbose:
