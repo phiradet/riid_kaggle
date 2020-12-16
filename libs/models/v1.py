@@ -8,6 +8,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import pytorch_lightning as pl
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
 from allennlp.nn.util import add_positional_features
+from pytorch_lightning.metrics.functional.classification import auroc
 
 from libs.modules.stacked_augmented_lstm import StackedAugmentedLSTM, TensorPair
 from libs.models.base_predictor import BasePredictor
@@ -223,7 +224,7 @@ class V1Predictor(BasePredictor):
                                           dim=2)
         return cls._shift_tensor(seen_content_feedback)
 
-    def _step(self, batch, hiddens=None):
+    def _step(self, batch, hiddens=None, calculate_roc=False):
         actual: torch.Tensor = batch["y"].clone()  # (batch, seq)
 
         seen_content_feedback = self.__class__.to_seen_content_feedback(actual)
@@ -264,4 +265,10 @@ class V1Predictor(BasePredictor):
             b = torch.tensor(self.hparams["b_flooding"], dtype=torch.float)
             loss = torch.abs(loss - b) + b
 
-        return loss, hiddens
+        if calculate_roc:
+            auc_score = auroc(pred=pred,
+                              target=actual,
+                              sample_weight=flatten_mask)
+            return loss, hiddens, auc_score
+        else:
+            return loss, hiddens

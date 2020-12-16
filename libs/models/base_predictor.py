@@ -135,7 +135,7 @@ class BasePredictor(pl.LightningModule):
         return outputs
 
     def validation_step(self, batch, batch_idx):
-        output = self._step(batch)
+        output = self._step(batch, calculate_roc=True)
 
         if len(output) == 2:
             loss, _ = output
@@ -147,13 +147,13 @@ class BasePredictor(pl.LightningModule):
                 'loss': loss
             }
         elif len(output) == 3:
-            loss, roc_auc, _ = output
+            loss, _, roc_auc = output
 
             self.logger.experiment.add_scalar("Loss/Validation", loss, self.global_step)
             self.logger.experiment.add_scalar("ROC_AUC/Validation", roc_auc, self.global_step)
 
             self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log('roc_auc', roc_auc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log('val_roc_auc', roc_auc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
             outputs = {
                 'loss': loss,
