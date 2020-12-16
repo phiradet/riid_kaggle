@@ -135,14 +135,33 @@ class BasePredictor(pl.LightningModule):
         return outputs
 
     def validation_step(self, batch, batch_idx):
-        loss, _ = self._step(batch)
+        output = self._step(batch)
 
-        self.logger.experiment.add_scalar("Loss/Validation", loss, self.current_epoch)
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if len(output) == 2:
+            loss, _ = output
 
-        outputs = {
-            'loss': loss
-        }
+            self.logger.experiment.add_scalar("Loss/Validation", loss, self.global_step)
+            self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+            outputs = {
+                'loss': loss
+            }
+        elif len(output) == 3:
+            loss, roc_auc, _ = output
+
+            self.logger.experiment.add_scalar("Loss/Validation", loss, self.global_step)
+            self.logger.experiment.add_scalar("ROC_AUC/Validation", roc_auc, self.global_step)
+
+            self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log('roc_auc', roc_auc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+            outputs = {
+                'loss': loss,
+                "roc_auc": roc_auc
+            }
+        else:
+            raise NotImplementedError
+
         return outputs
 
     def configure_optimizers(self):

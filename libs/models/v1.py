@@ -205,7 +205,12 @@ class V1Predictor(BasePredictor):
         return tensor
 
     @classmethod
-    def _get_seen_content_feedback(cls, actual: torch.Tensor) -> torch.FloatTensor:
+    def to_seen_content_feedback(cls, actual: torch.Tensor) -> torch.FloatTensor:
+        """
+        :param actual: (batch, seq)
+        :return: (batch, seq, 3)
+        """
+
         # (batch, seq, 1)
         is_answer_correctly = torch.unsqueeze(actual.eq(1.).float(), dim=2)
         is_answer_incorrectly = torch.unsqueeze(actual.eq(0.).float(), dim=2)
@@ -221,7 +226,7 @@ class V1Predictor(BasePredictor):
     def _step(self, batch, hiddens=None):
         actual: torch.Tensor = batch["y"].clone()  # (batch, seq)
 
-        seen_content_feedback = self.__class__._get_seen_content_feedback(actual)
+        seen_content_feedback = self.__class__.to_seen_content_feedback(actual)
 
         seq_len_mask = batch["seq_len_mask"]  # (batch, seq)
         question_mask = batch["question_mask"]  # (batch, seq)
