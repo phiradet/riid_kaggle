@@ -215,7 +215,7 @@ class V1Predictor(BasePredictor):
         # (batch, seq, 1)
         is_answer_correctly = torch.unsqueeze(actual.eq(1.).float(), dim=2)
         is_answer_incorrectly = torch.unsqueeze(actual.eq(0.).float(), dim=2)
-        is_lecture = torch.unsqueeze(actual.eq(0.).float(), dim=2)
+        is_lecture = torch.unsqueeze(actual.eq(-1.).float(), dim=2)
 
         # (batch, seq, 2)
         seen_content_feedback = torch.cat([is_answer_correctly,
