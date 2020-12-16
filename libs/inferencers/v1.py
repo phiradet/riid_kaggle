@@ -1,18 +1,12 @@
-import os
-import pickle
 from typing import *
 
 import torch
 import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
 
-from libs.inferencers.rnn_state import RNNState
-from libs.modules.stacked_augmented_lstm import TensorPair
-
-from libs.feature import extract_feature
 from libs.models.v1 import V1Predictor
-from libs.utils.io import load_state_dict
 from libs.inferencers._base import _BaseInference
+from libs.inferencers.lastest_content_state import LatestContentState
 
 
 class V1Inferencer(_BaseInference):
@@ -31,17 +25,37 @@ class V1Inferencer(_BaseInference):
                                            seq_len,
                                            verbose)
         self.previous_input = dict()
+        self.last_seen_content_state = LatestContentState \
+            .from_file(data_dir=initial_state_dir)
 
     def _ans_to_tensor(self, rows: pd.Series):
         return torch.tensor(rows.to_list(),
                             dtype=torch.float, device=self.device)
 
     def update_rnn_state(self):
-        raise NotImplementedError
+        model_input = self.previous_input
+        _, states = self.model(query_content_id=model_input["query_content_id"],
+                               query_content_feature=model_input["query_content_feature"],
+                               mask=model_input["mask"],
+                               seen_content_id=model_input["seen_content_id"],
+                               seen_content_feature=model_input["seen_content_feature"],
+                               seen_content_feedback=model_input["seen_content_feedback"],
+                               initial_state=model_input["initial_state"])
+        return states
 
     def update_last_seen_content_state(self,
                                        last_content_feedback: Optional[torch.Tensor]):
         user_ids = self.previous_input["user_ids"]
+
+        if last_content_feedback is None:
+            last_content_feedback = torch.zeros(len(user_ids), 3,
+                                                dtype=torch.float,
+                                                device=self.device)
+        self.last_seen_content_state \
+            .update_state(user_ids=user_ids,
+                          content_id=self.previous_input["query_content_id"],
+                          content_feature=self.previous_input["query_content_feature"],
+                          last_content_feedback=last_content_feedback)
 
     def update_state(self, prior_batch_ans_correct: Optional[List[int]]):
         """
@@ -71,7 +85,7 @@ class V1Inferencer(_BaseInference):
                                                                            do_shift=False)
                 # (batch_size, 3)
                 last_content_feedback = prev_group_y[torch.arange(batch_size),
-                                                     no_padding_seq_len-1]
+                                                     no_padding_seq_len - 1]
                 self.update_last_seen_content_state(last_content_feedback)
 
                 # ===== update prev ans =====
@@ -87,6 +101,29 @@ class V1Inferencer(_BaseInference):
 
         # at this state, all input are completed (as much as the data allow)
         self.update_rnn_state()
+
+    def get_seen_content_info(self,
+                              user_ids: List[int],
+                              content_id: torch.Tensor,
+                              content_feature: torch.Tensor):
+        last_seen_content_state = self.last_seen_content_state.get_state(user_ids)
+
+        last_seen_content_id = last_seen_content_state[0]        # (batch, 1)
+        last_seen_content_feature = last_seen_content_state[1]   # (batch, dim)
+        last_seen_content_feedback = last_seen_content_state[2]  # (batch, 3)
+
+        seen_content_id = torch.roll(content_id, shifts=1, dims=1)
+        seen_content_id[:, 0] = last_seen_content_id
+
+        seen_content_feature = torch.roll(content_feature, shifts=1, dims=1)
+        seen_content_feature[:, 0] = last_seen_content_feature
+
+        seen_content_feedback = torch.zeros(len(user_ids), 3,
+                                            dtype=torch.float,
+                                            device=self.device)
+        seen_content_feedback[:, 0] = last_seen_content_feedback
+
+        return seen_content_id, seen_content_feature, seen_content_feedback
 
     def predict(self, test_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
         prior_batch_answer_correctly = test_df["prior_group_answers_correct"].iloc[0]
@@ -115,6 +152,8 @@ class V1Inferencer(_BaseInference):
         initial_state = self.rnn_state.get_state(user_ids)
         model: V1Predictor = self.model
 
+        seen_content_state = self.get_seen_content_info(user_ids=user_ids)
+
         with torch.no_grad():
             if verbose:
                 print("feature_tensor", feature_tensor.shape)
@@ -123,13 +162,14 @@ class V1Inferencer(_BaseInference):
             model_input = dict(query_content_id=content_id_tensor,
                                query_content_feature=feature_tensor,
                                mask=seq_len_mask,
-                               seen_content_id=seen_content_id,
-                               seen_content_feature=seen_content_feature,
-                               seen_content_feedback=seen_content_feedback,
+                               seen_content_id=seen_content_state[0],
+                               seen_content_feature=seen_content_state[1],
+                               seen_content_feedback=seen_content_state[2],
                                initial_state=initial_state)
             pred_logit, states = model.forward(**model_input)
 
             model_input["user_ids"] = user_ids
+            model_input["initial_state"] = initial_state
             self.previous_input = model_input
 
         flatten_is_quesion_maks = is_question_mask.view(batch_size * seq_len)
