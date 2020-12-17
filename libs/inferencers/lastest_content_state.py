@@ -44,6 +44,7 @@ class LatestContentState(object):
             content_feedback = torch.zeros(batch_size, feedback_dim, dtype=torch.float)
             print("Init empty seen content state")
         else:
+            print("Load seen content state from", data_dir)
             known_user_id_idx = pickle.load(open(os.path.join(data_dir, "user_id_idx.pickle"), "rb"))
 
             if torch.cuda.is_available():
