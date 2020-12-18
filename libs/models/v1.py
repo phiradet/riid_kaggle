@@ -58,6 +58,13 @@ class V1Predictor(BasePredictor):
                                    batch_first=True,
                                    num_layers=lstm_num_layers,
                                    dropout=lstm_dropout)
+        elif self.encoder_type == "augmented_lstm":
+            self.encoder = StackedAugmentedLSTM(input_size=encoder_in_dim,
+                                                hidden_size=lstm_hidden_dim,
+                                                num_layers=lstm_num_layers,
+                                                recurrent_dropout_probability=lstm_dropout,
+                                                layer_dropout_probability=lstm_dropout,
+                                                use_highway=kwargs.get("lstm_use_highway", True))
         else:
             raise NotImplementedError
 
@@ -153,19 +160,13 @@ class V1Predictor(BasePredictor):
         clamped_sequence_lengths = sequence_lengths.clamp(min=1)
 
         if self.encoder_type == "vanilla_lstm":
-            packed_sequence_input = pack_padded_sequence(seen_content_tensor,
-                                                         clamped_sequence_lengths.data.tolist(),
-                                                         enforce_sorted=False,
-                                                         batch_first=True)
-
-            # encoder_out: (batch, seq_len, num_directions * hidden_size):
-            # h_t: (num_layers * num_directions, batch, hidden_size)
-            #    - this dimension is valid regardless of batch_first=True!!
-            packed_lstm_out, state = self.encoder(packed_sequence_input,
-                                                  initial_state)
-
-            # lstm_out: (batch, seq, num_directions * hidden_size)
-            lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
+            lstm_out, state = self._apply_vanilla_lstm(clamped_sequence_lengths,
+                                                       initial_state,
+                                                       seen_content_tensor)
+        elif self.encoder_type == "augmented_lstm":
+            lstm_out, state = self._apply_augmented_lstm(clamped_sequence_lengths,
+                                                         initial_state,
+                                                         seen_content_tensor)
         else:
             raise NotImplementedError
 
@@ -197,6 +198,47 @@ class V1Predictor(BasePredictor):
         y_pred = torch.squeeze(self.hidden2logit(pred_tensor), dim=-1)
 
         return y_pred, state
+
+    def _apply_vanilla_lstm(self,
+                            sequence_lengths: torch.Tensor,
+                            initial_state: TensorPair,
+                            content_feature: torch.Tensor):
+        packed_sequence_input = pack_padded_sequence(content_feature,
+                                                     sequence_lengths.data.tolist(),
+                                                     enforce_sorted=False,
+                                                     batch_first=True)
+        # encoder_out: (batch, seq_len, num_directions * hidden_size):
+        # h_t: (num_layers * num_directions, batch, hidden_size)
+        #    - this dimension is valid regardless of batch_first=True!!
+        packed_lstm_out, state = self.encoder(packed_sequence_input,
+                                              initial_state)
+        # lstm_out: (batch, seq, num_directions * hidden_size)
+        lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
+        return lstm_out, state
+
+    def _apply_augmented_lstm(self,
+                              sequence_lengths: torch.Tensor,
+                              initial_state: TensorPair,
+                              content_feature: torch.Tensor):
+        sorted_feature, sorted_sequence_lengths, restoration_indices, sorting_indices = \
+            self.__class__.sort_batch_by_length(content_feature, sequence_lengths)
+        packed_sequence_input = pack_padded_sequence(sorted_feature,
+                                                     sorted_sequence_lengths.data.tolist(),
+                                                     enforce_sorted=False,
+                                                     batch_first=True)
+        # encoder_out: (batch, seq_len, num_directions * hidden_size):
+        # h_t: (num_layers * num_directions, batch, hidden_size)
+        #    - this dimension is valid regardless of batch_first=True!!
+        packed_lstm_out, (h_t, c_t) = self.encoder(packed_sequence_input)
+        # lstm_out: (batch, seq, num_directions * hidden_size)
+        lstm_out, _ = pad_packed_sequence(packed_lstm_out, batch_first=True)
+
+        lstm_out = lstm_out.index_select(0, restoration_indices)
+        h_t = h_t.index_select(1, restoration_indices)
+        c_t = c_t.index_select(1, restoration_indices)
+        state = (h_t, c_t)
+
+        return lstm_out, state
 
     @staticmethod
     def _shift_tensor(tensor: torch.Tensor) -> torch.Tensor:

@@ -19,12 +19,12 @@ class V1Inferencer(_BaseInference):
                  seq_len: Optional[int] = None,
                  verbose: bool = False):
         super().__init__(model_config,
-                                           idx_map_dir,
-                                           checkpoint_dir,
-                                           V1Predictor,
-                                           initial_state_dir,
-                                           seq_len,
-                                           verbose)
+                         idx_map_dir,
+                         checkpoint_dir,
+                         V1Predictor,
+                         initial_state_dir,
+                         seq_len,
+                         verbose)
         self.previous_input = dict()
         self.last_seen_content_state = LatestContentState \
             .from_file(data_dir=initial_state_dir)
@@ -110,8 +110,8 @@ class V1Inferencer(_BaseInference):
         batch, seq_len = content_id.shape
         last_seen_content_state = self.last_seen_content_state.get_state(user_ids)
 
-        last_seen_content_id = last_seen_content_state[0]        # (batch, 1)
-        last_seen_content_feature = last_seen_content_state[1]   # (batch, dim)
+        last_seen_content_id = last_seen_content_state[0]  # (batch, 1)
+        last_seen_content_feature = last_seen_content_state[1]  # (batch, dim)
         last_seen_content_feedback = last_seen_content_state[2]  # (batch, 3)
 
         seen_content_id = torch.roll(content_id, shifts=1, dims=1)

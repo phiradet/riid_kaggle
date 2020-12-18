@@ -44,7 +44,7 @@ class _BaseInference(ABC):
 
         state_dict = load_state_dict(checkpoint_dir)
         self.model.load_state_dict(state_dict)
-        self.model = self.model.eval()
+        self.model.eval()
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         if torch.cuda.is_available():
