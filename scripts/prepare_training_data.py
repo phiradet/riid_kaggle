@@ -1,6 +1,5 @@
 import os
 import pickle
-import numpy as np
 from typing import *
 from multiprocessing import cpu_count
 from functools import partial
@@ -8,6 +7,7 @@ from functools import partial
 import torch
 import fire
 import pandas as pd
+import dask.dataframe as dd
 
 from libs.utils.io import read_data, read_contents
 from libs.feature import extract_feature
@@ -28,7 +28,8 @@ def save_data(rows: pd.DataFrame,
               part_idx: Dict[int, int],
               type_idx: Dict[str, int],
               bundle_id_idx: Dict[int, int],
-              content_id_idx: Dict[int, int]):
+              content_id_idx: Dict[int, int],
+              seq_len: Optional[int] = 512):
 
     user_id = rows["_user_id"].iloc[0]
 
@@ -44,7 +45,7 @@ def save_data(rows: pd.DataFrame,
                                type_idx=type_idx,
                                bundle_id_idx=bundle_id_idx,
                                content_id_idx=content_id_idx,
-                               seq_len=512)
+                               seq_len=seq_len)
 
     torch.save(instance, output_path)
 
@@ -77,7 +78,7 @@ def main(data_path: str, questions_path: str, lectures_path: str, output_dir: st
             with open(idx_out_path, "wb") as fp:
                 pickle.dump(eval(idx), fp)
 
-    data_df = read_data(data_path, npartitions=NPARTITIONS) \
+    data_df: dd.DataFrame = read_data(data_path, npartitions=NPARTITIONS) \
         .merge(content_df, how="left", on="content_id")
     print("data_df", data_df.shape)
     print(data_df.columns)
@@ -93,7 +94,7 @@ def main(data_path: str, questions_path: str, lectures_path: str, output_dir: st
     data_df["key"] = data_df["user_id"]
     print("Expected file count", len(data_df["key"].drop_duplicates()))
     data_df \
-        .groupby("key") \
+        .groupby("key", sort=False) \
         .apply(_save_data,
                meta=pd.Series([None])) \
         .compute()
