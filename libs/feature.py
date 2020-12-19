@@ -1,4 +1,3 @@
-import os
 from typing import *
 
 import torch
@@ -79,9 +78,13 @@ def extract_feature(rows: pd.DataFrame,
                                   np.expand_dims(prior_question_had_explanation_vec, axis=1)], axis=1)
     feature_mat = torch.tensor(feature_mat, dtype=torch.float)
 
+    timestamp_vec = get_row(rows, "timestamp").values
+    timestamp_vec = torch.tensor(timestamp_vec, dtype=torch.long)
+
     assert torch.isnan(content_id_vec).sum() == 0
     assert torch.isnan(bundle_id_vec).sum() == 0
     assert torch.isnan(feature_mat).sum() == 0
+    assert torch.isnan(timestamp_vec).sum() == 0
 
     if to_sparse:
         feature_mat = feature_mat.to_sparse()
@@ -92,7 +95,8 @@ def extract_feature(rows: pd.DataFrame,
         "user_id": user_id,
         "content_id": content_id_vec,
         "bundle_id": bundle_id_vec,
-        "feature": feature_mat
+        "feature": feature_mat,
+        "timestamp": timestamp_vec,
     }
 
     if "answered_correctly" in rows:
