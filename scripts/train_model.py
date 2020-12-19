@@ -45,7 +45,9 @@ def main(data_root_dir: str,
          val_check_interval: float = 1.0,
          resume_from_checkpoint: Optional[str] = None,
          hidden2logit_num_layers: int = 1,
-         model_type="v1"):
+         drop_weight_p: float = 0.0,
+         model_type: str = "v1",
+         weight_decay: float = 0.0):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -91,7 +93,9 @@ def main(data_root_dir: str,
                   encoder_type=encoder_type,
                   optimizer=optimizer,
                   highway_connection=highway_connection,
-                  hidden2logit_num_layers=hidden2logit_num_layers)
+                  hidden2logit_num_layers=hidden2logit_num_layers,
+                  drop_weight_p=drop_weight_p,
+                  weight_decay=weight_decay)
 
     if smoothness_alpha > 0:
         content_df = read_contents(questions_path="./dataset/questions.csv",
@@ -127,6 +131,7 @@ def main(data_root_dir: str,
         monitor='val_loss',
         dirpath='./logs',
         save_top_k=save_top_k,
+        save_last=True,
         mode='min')
 
     logger = TensorBoardLogger(save_dir="./tensorboard_logs", name='riid')

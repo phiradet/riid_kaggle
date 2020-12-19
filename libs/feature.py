@@ -30,13 +30,14 @@ def extract_feature(rows: pd.DataFrame,
                     type_idx: Dict[str, int],
                     bundle_id_idx: Dict[int, int],
                     content_id_idx: Dict[int, int],
-                    seq_len: Optional[int] = 512,
+                    seq_len: Optional[int] = 1024,
                     to_sparse: bool = True):
 
     user_id = rows["user_id"].iloc[0]
 
     if seq_len is not None:
-        rows = rows.head(seq_len)
+        # use tail, then we can capture latest state
+        rows = rows.tail(seq_len)
 
     content_id_vec = get_row(rows, "content_id").apply(lambda x: content_id_idx[x]).values
     content_id_vec = torch.tensor(content_id_vec, dtype=torch.long)

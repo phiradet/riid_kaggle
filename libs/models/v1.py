@@ -5,13 +5,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-import pytorch_lightning as pl
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
-from allennlp.nn.util import add_positional_features
 from pytorch_lightning.metrics.functional.classification import auroc
 
 from libs.modules.stacked_augmented_lstm import StackedAugmentedLSTM, TensorPair
 from libs.models.base_predictor import BasePredictor
+from libs.modules.embedding_dropout import EmbeddingWithDropout
+from libs.modules.weight_dropout import WeightDropout
 
 
 class V1Predictor(BasePredictor):
@@ -19,26 +19,38 @@ class V1Predictor(BasePredictor):
     def __init__(self, **kwargs):
         super().__init__()
 
+        drop_weight_p = kwargs.get("drop_weight_p", 0)
+
         content_id_size = kwargs["content_id_size"]
         content_id_dim = kwargs["content_id_dim"]
 
-        self.content_id_emb = nn.Embedding(num_embeddings=content_id_size,
-                                           embedding_dim=content_id_dim,
-                                           padding_idx=0)
+        self.content_id_emb = self.__class__. \
+            _get_embedding_layer(num_emb=content_id_size,
+                                 emb_dim=content_id_dim,
+                                 dropout_p=drop_weight_p)
+
+        bundle_id_size = kwargs["bundle_id_size"]
+        bundle_id_dim = kwargs["bundle_id_dim"]
+        self.bundle_id_emb = self.__class__. \
+            _get_embedding_layer(num_emb=bundle_id_size,
+                                 emb_dim=bundle_id_dim,
+                                 dropout_p=drop_weight_p)
 
         if kwargs["emb_dropout"] > 0:
-            self.emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
+            self.content_emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
+            self.bundle_emb_dropout = InputVariationalDropout(p=kwargs["emb_dropout"])
 
-        content_feature_dim = kwargs["feature_dim"] + kwargs["content_id_dim"]
-        prev_content_state = 3  # (answer correctly, answer incorrectly, lecture)
-        raw_encoder_in_dim = content_feature_dim + prev_content_state
+        content_feature_dim = kwargs["feature_dim"] + content_id_dim + bundle_id_dim
+
+        content_feedback_dim = 3  # (answer correctly, answer incorrectly, is_lecture)
+        raw_encoder_in_dim = content_feature_dim + content_feedback_dim
 
         if "lstm_in_dim" in kwargs and kwargs["lstm_in_dim"] != raw_encoder_in_dim:
             encoder_in_dim = kwargs["lstm_in_dim"]
             self.encoder_in_proj = nn.Linear(in_features=raw_encoder_in_dim,
                                              out_features=encoder_in_dim,
                                              bias=True)
-            query_dim = content_feature_dim // 2
+            query_dim = content_feature_dim // kwargs.get("query_dim_scale", 2)
             self.query_proj = nn.Linear(in_features=content_feature_dim,
                                         out_features=query_dim,
                                         bias=True)
@@ -52,12 +64,23 @@ class V1Predictor(BasePredictor):
 
         self.encoder_type = kwargs.get("encoder_type", "vanilla_lstm")
         if self.encoder_type == "vanilla_lstm":
-            self.encoder = nn.LSTM(input_size=encoder_in_dim,
-                                   hidden_size=lstm_hidden_dim,
-                                   bidirectional=False,
-                                   batch_first=True,
-                                   num_layers=lstm_num_layers,
-                                   dropout=lstm_dropout)
+            if drop_weight_p > 0:
+                layer_names = [f"weight_hh_l{i}" for i in range(lstm_num_layers)]
+                self.encoder = WeightDropout(nn.LSTM(input_size=encoder_in_dim,
+                                                     hidden_size=lstm_hidden_dim,
+                                                     bidirectional=False,
+                                                     batch_first=True,
+                                                     num_layers=lstm_num_layers,
+                                                     dropout=lstm_dropout),
+                                             weight_p=drop_weight_p,
+                                             layer_names=layer_names)
+            else:
+                self.encoder = nn.LSTM(input_size=encoder_in_dim,
+                                       hidden_size=lstm_hidden_dim,
+                                       bidirectional=False,
+                                       batch_first=True,
+                                       num_layers=lstm_num_layers,
+                                       dropout=lstm_dropout)
         elif self.encoder_type == "augmented_lstm":
             self.encoder = StackedAugmentedLSTM(input_size=encoder_in_dim,
                                                 hidden_size=lstm_hidden_dim,
@@ -115,16 +138,31 @@ class V1Predictor(BasePredictor):
 
         self.hparams = kwargs
 
+    @staticmethod
+    def _get_embedding_layer(num_emb, emb_dim, dropout_p):
+        emb = nn.Embedding(num_embeddings=num_emb,
+                           embedding_dim=emb_dim,
+                           padding_idx=0)
+        if dropout_p > 0:
+            return EmbeddingWithDropout(embedding_module=emb,
+                                        dropout_p=dropout_p)
+        else:
+            return emb
+
     def _combine_content_feature(self,
                                  content_id: torch.LongTensor,
                                  content_feature: torch.FloatTensor,
+                                 bundle_id: torch.LongTensor,
                                  content_feedback: Optional[torch.FloatTensor] = None) -> torch.Tensor:
 
         content_emb = self.content_id_emb(content_id)
-        if self.hparams["emb_dropout"] > 0:
-            content_emb = self.emb_dropout(content_emb)
+        bundle_emb = self.bundle_id_emb(bundle_id)
 
-        features = [content_emb, content_feature]
+        if self.hparams["emb_dropout"] > 0:
+            content_emb = self.content_emb_dropout(content_emb)
+            bundle_emb = self.bundle_emb_dropout(bundle_emb)
+
+        features = [content_emb, bundle_emb, content_feature]
         if content_feedback is not None:
             content_feedback = F.dropout(content_feedback,
                                          p=0.2,
@@ -136,16 +174,20 @@ class V1Predictor(BasePredictor):
     def forward(self,
                 query_content_id: torch.LongTensor,
                 query_content_feature: torch.FloatTensor,
+                query_bundle_id: torch.LongTensor,
                 mask: torch.Tensor,
-                seen_content_id: Optional[torch.LongTensor],
-                seen_content_feature: Optional[torch.FloatTensor],
-                seen_content_feedback: Optional[torch.FloatTensor],
-                initial_state: Optional[TensorPair] = None):
+                seen_content_id: torch.LongTensor,
+                seen_content_feature: torch.FloatTensor,
+                seen_content_feedback: torch.FloatTensor,
+                seen_bundle_id: torch.LongTensor,
+                initial_state: Optional[TensorPair] = None,
+                return_feature: bool = False):
 
         # content_emb: (batch, seq, dim)
         seen_content_tensor = self._combine_content_feature(content_id=seen_content_id,
                                                             content_feature=seen_content_feature,
-                                                            content_feedback=seen_content_feedback)
+                                                            content_feedback=seen_content_feedback,
+                                                            bundle_id=seen_bundle_id)
 
         if hasattr(self, "encoder_in_proj"):
             seen_content_tensor = self.encoder_in_proj(seen_content_tensor)
@@ -187,7 +229,8 @@ class V1Predictor(BasePredictor):
         # query_content_tensor: (batch, seq, dim)
         query_content_tensor = self._combine_content_feature(content_id=query_content_id,
                                                              content_feature=query_content_feature,
-                                                             content_feedback=None)
+                                                             content_feedback=None,
+                                                             bundle_id=query_bundle_id)
         if hasattr(self, "encoder_in_proj"):
             query_content_tensor = self.query_proj(query_content_tensor)
 
@@ -197,7 +240,10 @@ class V1Predictor(BasePredictor):
         # y_pred: (batch, seq)
         y_pred = torch.squeeze(self.hidden2logit(pred_tensor), dim=-1)
 
-        return y_pred, state
+        if return_feature:
+            return y_pred, state, pred_tensor
+        else:
+            return y_pred, state
 
     def _apply_vanilla_lstm(self,
                             sequence_lengths: torch.Tensor,
@@ -286,20 +332,24 @@ class V1Predictor(BasePredictor):
 
         query_content_id = batch["content_id"]
         query_content_feature = batch["feature"]
+        query_bundle_id = batch["bundle_id"]
 
         query_content_id[torch.isnan(query_content_id)] = 0
         query_content_feature[torch.isnan(query_content_feature)] = 0
         seq_len_mask[torch.isnan(seq_len_mask)] = 0
 
         seen_content_id = self.__class__._shift_tensor(query_content_id)
+        seen_bundle_id = self.__class__._shift_tensor(query_bundle_id)
         seen_content_feature = self.__class__._shift_tensor(query_content_feature)
 
         pred, hiddens = self.forward(query_content_id=query_content_id,
                                      query_content_feature=query_content_feature,
+                                     query_bundle_id=query_bundle_id,
                                      mask=seq_len_mask,
                                      seen_content_id=seen_content_id,
                                      seen_content_feature=seen_content_feature,
                                      seen_content_feedback=seen_content_feedback,
+                                     seen_bundle_id=seen_bundle_id,
                                      initial_state=hiddens)
         pred = pred.view(batch_size * seq_len)
 

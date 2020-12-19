@@ -165,19 +165,22 @@ class BasePredictor(pl.LightningModule):
         return outputs
 
     def configure_optimizers(self):
-        optimizer = self.hparams.get("optimizer", "adam").lower()
+        optimizer_type = self.hparams.get("optimizer", "adam").lower()
 
-        if optimizer == "adam":
-            return torch.optim.Adam(self.parameters(),
-                                    lr=self.hparams.get("lr", 1e-3),
-                                    weight_decay=self.hparams.get("weight_decay", 0))
-        elif optimizer == "sgd":
-            return torch.optim.SGD(self.parameters(),
-                                   lr=self.hparams.get("lr", 1e-3),
-                                   weight_decay=self.hparams.get("weight_decay", 0))
-        elif optimizer == "asgd":
-            return torch.optim.ASGD(self.parameters(),
-                                    lr=self.hparams.get("lr", 1e-2),
-                                    weight_decay=self.hparams.get("weight_decay", 0))
+        if optimizer_type == "adam":
+            optimizer = torch.optim.Adam(self.parameters(),
+                                         lr=self.hparams.get("lr", 1e-3),
+                                         weight_decay=self.hparams.get("weight_decay", 0))
+        elif optimizer_type == "sgd":
+            optimizer = torch.optim.SGD(self.parameters(),
+                                        lr=self.hparams.get("lr", 1e-3),
+                                        weight_decay=self.hparams.get("weight_decay", 0))
+        elif optimizer_type == "asgd":
+            optimizer = torch.optim.ASGD(self.parameters(),
+                                         lr=self.hparams.get("lr", 1e-2),
+                                         weight_decay=self.hparams.get("weight_decay", 0))
         else:
-            raise ValueError(f"Unknown optimizer type {optimizer}")
+            raise ValueError(f"Unknown optimizer type {optimizer_type}")
+
+        print("Init", optimizer)
+        return optimizer
