@@ -29,7 +29,7 @@ def save_data(rows: pd.DataFrame,
               type_idx: Dict[str, int],
               bundle_id_idx: Dict[int, int],
               content_id_idx: Dict[int, int],
-              seq_len: Optional[int] = 512):
+              seq_len: Optional[int] = 1024):
 
     user_id = rows["_user_id"].iloc[0]
 
