@@ -36,7 +36,7 @@ def extract_feature(rows: pd.DataFrame,
 
     if seq_len is not None:
         # use tail, then we can capture latest state
-        rows = rows.tail(seq_len)
+        rows = rows.tail(seq_len).reset_index(drop=True)
 
     content_id_vec = get_row(rows, "content_id").apply(lambda x: content_id_idx[x]).values
     content_id_vec = torch.tensor(content_id_vec, dtype=torch.long)
