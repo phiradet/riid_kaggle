@@ -171,6 +171,14 @@ class V1Predictor(BasePredictor):
 
         return torch.cat(features, dim=-1)
 
+    def _apply_dropout_to_state(self, state: Optional[TensorPair] = None):
+        if state is None:
+            return state
+        else:
+            return [F.dropout(s,
+                              p=self.hparams["lstm_dropout"],
+                              training=self.training) for s in state]
+
     def forward(self,
                 query_content_id: torch.LongTensor,
                 query_content_feature: torch.FloatTensor,
@@ -201,6 +209,7 @@ class V1Predictor(BasePredictor):
         sequence_lengths = self.__class__.get_lengths_from_seq_mask(mask)
         clamped_sequence_lengths = sequence_lengths.clamp(min=1)
 
+        initial_state = self._apply_dropout_to_state(initial_state)
         if self.encoder_type == "vanilla_lstm":
             lstm_out, state = self._apply_vanilla_lstm(clamped_sequence_lengths,
                                                        initial_state,
