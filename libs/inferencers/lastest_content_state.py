@@ -12,6 +12,7 @@ class LatestContentState(object):
                  content_id: torch.Tensor,
                  content_feature: torch.Tensor,
                  content_feedback: torch.Tensor,
+                 bundle_id: torch.Tensor,
                  verbose: bool = False):
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -20,6 +21,8 @@ class LatestContentState(object):
         self.content_id = content_id.to(self.device)
         self.content_feature = content_feature.to(self.device)
         self.content_feedback = content_feedback.to(self.device)
+        self.bundle_id = bundle_id.to(self.device)
+
         self.verbose = verbose
 
         _, self.feature_dim = self.content_feature.shape
@@ -29,6 +32,7 @@ class LatestContentState(object):
             print("content_id:", self.content_id.shape)
             print("content_feature:", self.content_feature.shape)
             print("content_feedback:", self.content_feedback.shape)
+            print("bundle_id:", self.bundle_id.shape)
 
     @classmethod
     def from_file(cls,
@@ -42,16 +46,20 @@ class LatestContentState(object):
             content_id = torch.zeros(batch_size, 1, dtype=torch.long)
             content_feature = torch.zeros(batch_size, feature_dim, dtype=torch.float)
             content_feedback = torch.zeros(batch_size, feedback_dim, dtype=torch.float)
+            bundle_id = torch.zeros(batch_size, 1, dtype=torch.long)
             print("Init empty seen content state")
         else:
             print("Load seen content state from", data_dir)
             known_user_id_idx = pickle.load(open(os.path.join(data_dir, "user_id_idx.pickle"), "rb"))
 
             if torch.cuda.is_available():
+                bundle_id = torch.load(os.path.join(data_dir, "bundle_id.pth"))
                 content_id = torch.load(os.path.join(data_dir, "content_id.pth"))
                 content_feature = torch.load(os.path.join(data_dir, "content_feature.pth"))
                 content_feedback = torch.load(os.path.join(data_dir, "content_feedback.pth"))
             else:
+                bundle_id = torch.load(os.path.join(data_dir, "bundle_id.pth"),
+                                       map_location=torch.device('cpu'))
                 content_id = torch.load(os.path.join(data_dir, "content_id.pth"),
                                         map_location=torch.device('cpu'))
                 content_feature = torch.load(os.path.join(data_dir, "content_feature.pth"),
@@ -63,12 +71,14 @@ class LatestContentState(object):
                    content_id,
                    content_feature,
                    content_feedback,
+                   bundle_id,
                    verbose)
 
     @staticmethod
     def found_seen_content_files(data_dir: str):
         return os.path.exists(os.path.join(data_dir, "content_id.pth")) and \
                os.path.exists(os.path.join(data_dir, "content_feature.pth")) and \
+               os.path.exists(os.path.join(data_dir, "bundle_id.pth")) and \
                os.path.exists(os.path.join(data_dir, "content_feedback.pth"))
 
     @staticmethod
@@ -90,8 +100,11 @@ class LatestContentState(object):
             content_feedback = torch.zeros(batch_size, 3,
                                            dtype=self.content_feedback.dtype,
                                            device=self.device)
+            bundle_id = torch.zeros(batch_size, 1,
+                                    dtype=self.bundle_id.dtype,
+                                    device=self.device)
 
-            output = [content_id, content_feature, content_feedback]
+            output = [content_id, content_feature, content_feedback, bundle_id]
         else:
             selection_ids = []
 
@@ -105,7 +118,11 @@ class LatestContentState(object):
             known_user_mask = selection_ids >= 0
 
             output = []
-            src_tensors = [self.content_id, self.content_feature, self.content_feedback]
+            src_tensors = [self.content_id,
+                           self.content_feature,
+                           self.content_feedback,
+                           self.bundle_id]
+
             for src in src_tensors:
                 _, dim = src.shape
                 o_tensor = torch.zeros(len(user_ids), dim,
@@ -120,12 +137,14 @@ class LatestContentState(object):
                      user_ids: List[int],
                      content_id: torch.Tensor,
                      content_feature: torch.Tensor,
+                     bundle_id: torch.Tensor,
                      last_content_feedback: torch.Tensor):
         """
         :param user_ids:
         :param content_id: (batch, seq, 1)
         :param content_feature: (batch, seq, dim)
         :param last_content_feedback: (batch, 3)
+        :param bundle_id: (batch, seq, 1)
         :return:
         """
         mask = content_id > 0
@@ -133,6 +152,10 @@ class LatestContentState(object):
         # (batch, 1)
         last_content_id = self.__class__._get_last_element(content_id, mask)
         last_content_id = torch.unsqueeze(last_content_id, dim=1)
+
+        # (batch, 1)
+        last_bundle_id = self.__class__._get_last_element(bundle_id, mask)
+        last_bundle_id = torch.unsqueeze(last_bundle_id, dim=1)
 
         # (batch, dim)
         last_content_feature = self.__class__._get_last_element(content_feature, mask)
@@ -158,6 +181,12 @@ class LatestContentState(object):
                                                  dtype=torch.long,
                                                  device=self.device)])
         self.content_id[selection_ids] = last_content_id
+
+        self.bundle_id = torch.cat([self.bundle_id,
+                                    torch.zeros(unknown_user_count, 1,
+                                                dtype=torch.long,
+                                                device=self.device)])
+        self.bundle_id[selection_ids] = last_bundle_id
 
         self.content_feature = torch.cat([self.content_feature,
                                           torch.zeros(unknown_user_count, self.feature_dim,

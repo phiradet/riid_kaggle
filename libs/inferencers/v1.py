@@ -36,9 +36,11 @@ class V1Inferencer(_BaseInference):
     def update_rnn_state(self):
         model_input = self.previous_input
         _, states = self.model(query_content_id=model_input["query_content_id"],
+                               query_bundle_id=model_input["query_bundle_id"],
                                query_content_feature=model_input["query_content_feature"],
                                mask=model_input["mask"],
                                seen_content_id=model_input["seen_content_id"],
+                               seen_bundle_id=model_input["seen_bundle_id"],
                                seen_content_feature=model_input["seen_content_feature"],
                                seen_content_feedback=model_input["seen_content_feedback"],
                                initial_state=model_input["initial_state"])
@@ -56,6 +58,7 @@ class V1Inferencer(_BaseInference):
             .update_state(user_ids=user_ids,
                           content_id=self.previous_input["query_content_id"],
                           content_feature=self.previous_input["query_content_feature"],
+                          bundle_id=self.previous_input["query_bundle_id"],
                           last_content_feedback=last_content_feedback)
 
     def update_state(self, prior_batch_ans_correct: Optional[List[int]]):
@@ -106,6 +109,7 @@ class V1Inferencer(_BaseInference):
     def get_seen_content_info(self,
                               user_ids: List[int],
                               content_id: torch.Tensor,
+                              bundle_id: torch.Tensor,
                               content_feature: torch.Tensor):
         batch, seq_len = content_id.shape
         last_seen_content_state = self.last_seen_content_state.get_state(user_ids)
@@ -113,9 +117,13 @@ class V1Inferencer(_BaseInference):
         last_seen_content_id = last_seen_content_state[0]  # (batch, 1)
         last_seen_content_feature = last_seen_content_state[1]  # (batch, dim)
         last_seen_content_feedback = last_seen_content_state[2]  # (batch, 3)
+        last_seen_bundle_id = last_seen_content_state[3]  # (batch, 1)
 
         seen_content_id = torch.roll(content_id, shifts=1, dims=1)
         seen_content_id[:, 0] = torch.squeeze(last_seen_content_id, dim=-1)
+
+        seen_bundle_id = torch.roll(bundle_id, shifts=1, dims=1)
+        seen_bundle_id[:, 0] = torch.squeeze(last_seen_bundle_id, dim=-1)
 
         seen_content_feature = torch.roll(content_feature, shifts=1, dims=1)
         seen_content_feature[:, 0] = last_seen_content_feature
@@ -125,7 +133,7 @@ class V1Inferencer(_BaseInference):
                                             device=self.device)
         seen_content_feedback[:, 0] = last_seen_content_feedback
 
-        return seen_content_id, seen_content_feature, seen_content_feedback
+        return seen_content_id, seen_content_feature, seen_content_feedback, seen_bundle_id
 
     def predict(self, test_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
 
@@ -151,6 +159,7 @@ class V1Inferencer(_BaseInference):
 
         # (N, seq)
         content_id_tensor = pad_sequence(df["content_id"].to_list(), batch_first=True)
+        bundle_id_tensor = pad_sequence(df["bundle_id"].to_list(), batch_first=True)
         row_id_tensor = pad_sequence(df["row_id"].to_list(), batch_first=True)
 
         # (N, seq, dim)
@@ -165,6 +174,7 @@ class V1Inferencer(_BaseInference):
 
         seen_content_state = self.get_seen_content_info(user_ids=user_ids,
                                                         content_id=content_id_tensor,
+                                                        bundle_id=bundle_id_tensor,
                                                         content_feature=feature_tensor)
 
         with torch.no_grad():
@@ -174,10 +184,12 @@ class V1Inferencer(_BaseInference):
 
             model_input = dict(query_content_id=content_id_tensor,
                                query_content_feature=feature_tensor,
+                               query_bundle_id=bundle_id_tensor,
                                mask=seq_len_mask,
                                seen_content_id=seen_content_state[0],
                                seen_content_feature=seen_content_state[1],
                                seen_content_feedback=seen_content_state[2],
+                               seen_bundle_id=seen_content_state[3],
                                initial_state=initial_state)
             pred_logit, states = model.forward(**model_input)
 

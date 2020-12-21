@@ -66,6 +66,7 @@ class _BaseInference(ABC):
             "feature": instances["feature"],
             "row_id": torch.tensor(rows["row_id"].values, dtype=torch.int),
             "is_question_mask": instances["is_question_mask"],
+            "bundle_id": instances["bundle_id"]
         }
 
         if "y" in instances:
