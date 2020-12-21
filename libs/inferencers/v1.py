@@ -137,16 +137,8 @@ class V1Inferencer(_BaseInference):
 
     def predict(self, test_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
 
-        prior_batch_answer_correctly = None
-
-        if "prior_group_answers_correct" in test_df:
-            try:
-                prior_batch_answer_correctly = test_df["prior_group_answers_correct"].iloc[0]
-                if isinstance(prior_batch_answer_correctly, str):
-                    prior_batch_answer_correctly = eval(prior_batch_answer_correctly)
-            except Exception as e:
-                if verbose:
-                    print("Cannot get prior_group_answers_correct because of {e}")
+        prior_batch_answer_correctly = test_df["prior_group_answers_correct"].iloc[0]
+        prior_batch_answer_correctly = eval(prior_batch_answer_correctly)
 
         self.update_state(prior_batch_answer_correctly)
 
