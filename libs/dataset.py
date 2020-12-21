@@ -1,5 +1,6 @@
 import os
 import glob
+import random
 from typing import *
 from functools import partial
 from collections import defaultdict
@@ -16,6 +17,27 @@ def sort_batch_by_length(seq_lens: torch.Tensor):
     _, reverse_mapping = permutation_index.sort(0, descending=False)
     restoration_indices = index_range.index_select(0, reverse_mapping)
     return sorted_sequence_lengths, restoration_indices, permutation_index
+
+
+def _trim_seq_len(tensor: torch.Tensor,
+                  seq_len: Optional[int]=None,
+                  random_seq_truncate: float = 0,
+                  is_sparse_tensor: bool = True):
+    if is_sparse_tensor:
+        tensor = tensor.to_dense()
+
+    actual_seq_len = tensor.shape[0]
+
+    if seq_len is None:
+        seq_len = actual_seq_len
+
+    if random.random() < random_seq_truncate:
+        start_pos = random.randint(0, actual_seq_len-2)
+        tensor = tensor[start_pos: start_pos+seq_len]
+    else:
+        tensor = tensor[-seq_len:]
+
+    return tensor
 
 
 def collate_fn(instances: List[Dict[str, torch.tensor]],
@@ -56,19 +78,38 @@ def get_data_loader(**kwargs):
 
     if "is_sparse_tensor" in kwargs:
         del kwargs["is_sparse_tensor"]
-        
+
     return DataLoader(collate_fn=_collate_fn, **kwargs)
 
 
 class RiidDataset(Dataset):
 
-    def __init__(self, data_root_dir: str, split: str):
+    def __init__(self, data_root_dir: str, split: str, min_len: Optional[int] = 5):
         self.data_root_dir = data_root_dir
         self.split = split
 
         self.indexes_dir = os.path.join(self.data_root_dir, "indexes")
         self.instances_dir = os.path.join(self.data_root_dir, self.split)
         self.file_list = list(sorted(glob.glob(os.path.join(self.instances_dir, "*.pth"))))
+
+        self.min_len = min_len
+        if min_len is not None:
+            self.file_list = list(self.__class__._filer_files(files=self.file_list,
+                                                              min_len=min_len))
+
+    @staticmethod
+    def _filer_files(files: List[str], min_len: int) -> Iterator[str]:
+        ignore_count = 0
+        for f in files:
+            tensor = torch.load(f)
+            seq_len = tensor["y"].shape
+
+            if seq_len >= min_len:
+                yield f
+            else:
+                ignore_count += 1
+
+        print(f"{ignore_count} files are shorter than {min_len}")
 
     def __len__(self) -> int:
         return len(self.file_list)
