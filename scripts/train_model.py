@@ -12,6 +12,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from libs.dataset import RiidDataset, get_data_loader
 from libs.models.baseline import Predictor as BaselinePredictor
 from libs.models.v1 import V1Predictor
+from libs.models.v2 import V2Predictor
 from libs.utils.graph import get_content_adjacency_matrix
 from libs.utils.io import read_contents
 
@@ -47,7 +48,8 @@ def main(data_root_dir: str,
          hidden2logit_num_layers: int = 1,
          drop_weight_p: float = 0.0,
          model_type: str = "v1",
-         weight_decay: float = 0.0):
+         weight_decay: float = 0.0,
+         attention_range: int = 128):
 
     print("data_root_dir", data_root_dir, type(data_root_dir))
     print("batch_size", batch_size, type(batch_size))
@@ -95,7 +97,8 @@ def main(data_root_dir: str,
                   highway_connection=highway_connection,
                   hidden2logit_num_layers=hidden2logit_num_layers,
                   drop_weight_p=drop_weight_p,
-                  weight_decay=weight_decay)
+                  weight_decay=weight_decay,
+                  attention_range=attention_range)
 
     if smoothness_alpha > 0:
         content_df = read_contents(questions_path="./dataset/questions.csv",
@@ -117,6 +120,8 @@ def main(data_root_dir: str,
         model = BaselinePredictor(**config)
     elif model_type == "v1":
         model = V1Predictor(**config)
+    elif model_type == "v2":
+        model = V2Predictor(**config)
     else:
         raise ValueError
 

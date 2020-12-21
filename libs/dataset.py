@@ -2,6 +2,7 @@ import os
 import glob
 import random
 from typing import *
+from datetime import datetime
 from functools import partial
 from collections import defaultdict
 
@@ -20,7 +21,7 @@ def sort_batch_by_length(seq_lens: torch.Tensor):
 
 
 def _trim_seq_len(tensor: torch.Tensor,
-                  seq_len: Optional[int]=None,
+                  seq_len: Optional[int] = None,
                   random_seq_truncate: float = 0,
                   is_sparse_tensor: bool = True):
     if is_sparse_tensor:
@@ -84,7 +85,7 @@ def get_data_loader(**kwargs):
 
 class RiidDataset(Dataset):
 
-    def __init__(self, data_root_dir: str, split: str, min_len: Optional[int] = 5):
+    def __init__(self, data_root_dir: str, split: str, min_len: Optional[int] = None):
         self.data_root_dir = data_root_dir
         self.split = split
 
@@ -94,6 +95,7 @@ class RiidDataset(Dataset):
 
         self.min_len = min_len
         if min_len is not None:
+            print(f"{datetime.now()}: Start filtering data in {self.instances_dir}")
             self.file_list = list(self.__class__._filer_files(files=self.file_list,
                                                               min_len=min_len))
 
@@ -102,14 +104,14 @@ class RiidDataset(Dataset):
         ignore_count = 0
         for f in files:
             tensor = torch.load(f)
-            seq_len = tensor["y"].shape
+            seq_len = tensor["y"].shape[0]
 
             if seq_len >= min_len:
                 yield f
             else:
                 ignore_count += 1
 
-        print(f"{ignore_count} files are shorter than {min_len}")
+        print(f"{datetime.now()}: {ignore_count} files are shorter than {min_len}")
 
     def __len__(self) -> int:
         return len(self.file_list)
