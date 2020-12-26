@@ -53,9 +53,9 @@ def collate_fn(instances: List[Dict[str, torch.tensor]],
     for k in instances[0].keys():
         if instances[0][k].dim() > 0:
             if is_sparse_tensor and (k == "feature" or k == "y"):
-                _tensors = [i[k].to_dense()[:seq_max_len] for i in instances]
+                _tensors = [i[k].to_dense()[-seq_max_len:] for i in instances]
             else:
-                _tensors = [i[k][:seq_max_len] for i in instances]
+                _tensors = [i[k][-seq_max_len:] for i in instances]
             padded_tensor = pad_sequence(_tensors, batch_first=batch_first)
         else:
             _tensors = [i[k] for i in instances]
