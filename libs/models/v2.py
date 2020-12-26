@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from allennlp.modules.input_variational_dropout import InputVariationalDropout
 from pytorch_lightning.metrics.functional.classification import auroc
+from allennlp.nn.util import add_positional_features
 
 from libs.modules.stacked_augmented_lstm import StackedAugmentedLSTM, TensorPair
 from libs.models.base_predictor import BasePredictor
@@ -211,6 +212,7 @@ class V2Predictor(BasePredictor):
 
         attn_mask = self.__class__.get_limit_range_attention_mask(seq_len=seq_len,
                                                                   attention_range=self.attention_range)
+        attn_mask = attn_mask.to(self.device)
 
         # (batch, seq, dim) -> (seq, batch, dim)
         query = query_content.permute(1, 0, 2)
