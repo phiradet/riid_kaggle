@@ -107,6 +107,7 @@ class V2Predictor(BasePredictor):
         ################################
         #     Multi-head attention     #
         ################################
+        self.attention_range = kwargs["attention_range"]
         self.attention_layer = nn.MultiheadAttention(embed_dim=query_dim,
                                                      num_heads=8,
                                                      dropout=0.3,
@@ -208,9 +209,8 @@ class V2Predictor(BasePredictor):
 
         _, seq_len, _ = query_content.shape
 
-        attention_range = self.hparams.get("attention_range", 128)
         attn_mask = self.__class__.get_limit_range_attention_mask(seq_len=seq_len,
-                                                                  attention_range=attention_range)
+                                                                  attention_range=self.attention_range)
 
         # (batch, seq, dim) -> (seq, batch, dim)
         query = query_content.permute(1, 0, 2)
@@ -287,6 +287,7 @@ class V2Predictor(BasePredictor):
                                                              bundle_id=query_bundle_id)
         if hasattr(self, "encoder_in_proj"):
             query_content_tensor = self.query_proj(query_content_tensor)
+            query_content_tensor = F.relu(query_content_tensor)
 
         # pred_tensor: (batch, seq, dim)
         pred_tensor = self._apply_attention(query_content=query_content_tensor,
